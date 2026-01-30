@@ -312,3 +312,110 @@ When implementing features:
 - ❌ Don't block user actions while waiting for network
 - ❌ Don't commit API keys or secrets
 - ❌ Don't ignore the context structure - it's central to the AI system
+
+---
+
+## Implementation Progress
+
+### Phase 1: Backend Foundation ✅ COMPLETE
+**Status:** All 4 steps completed
+
+#### Step 1: FastAPI Project Setup ✅
+- `backend/requirements.txt` - All dependencies (FastAPI, SQLAlchemy, JWT, bcrypt, etc.)
+- `backend/app/config.py` - Pydantic settings with env vars support
+- `backend/app/database.py` - SQLAlchemy engine + session management
+- `backend/main.py` - FastAPI app with CORS, health check, API router
+
+#### Step 2: PostgreSQL Schema ✅
+- `backend/app/models/user.py` - User model with:
+  - UUID primary key
+  - Email/password auth fields
+  - JSONB context columns: `profile`, `patterns`, `insights`, `goals`, `memory`
+  - Refresh token hash for JWT rotation
+- `backend/app/models/user.py` - Transaction model with:
+  - Amount (string for precision), currency, merchant, category
+  - Source tracking (manual/voice/sms)
+  - AI metadata (confidence, anomaly flags)
+- `backend/alembic/` - Migration setup with initial schema
+
+#### Step 3: API Structure ✅
+- `backend/app/schemas/auth.py` - Request/response schemas:
+  - `SignupRequest`, `LoginRequest`, `RefreshTokenRequest`
+  - `TokenResponse`, `MessageResponse`
+- `backend/app/schemas/user.py` - User schemas:
+  - `UserResponse` (includes all context fields)
+  - `ProfileUpdate` for PATCH operations
+- `backend/app/api/deps.py` - FastAPI dependencies:
+  - `get_db()` - Database session injection
+  - `get_current_user()` - JWT validation + user lookup
+  - Type aliases: `DBSession`, `CurrentUser`, `ActiveUser`
+- `backend/app/core/security.py` - Security utilities:
+  - Password hashing (bcrypt)
+  - JWT creation/validation (access + refresh tokens)
+  - Token hashing for rotation security
+
+#### Step 4: Auth Endpoints ✅
+- `backend/app/api/v1/endpoints/auth.py` - All auth routes:
+  - `POST /api/v1/auth/signup` - Register + return tokens
+  - `POST /api/v1/auth/login` - Authenticate + return tokens
+  - `POST /api/v1/auth/refresh` - Token rotation
+  - `POST /api/v1/auth/logout` - Invalidate refresh token
+  - `GET /api/v1/auth/me` - Get current user + context
+- `backend/app/api/v1/router.py` - Wired up auth router
+
+#### Backend File Structure (Current)
+```
+backend/
+├── main.py                          # FastAPI app entry
+├── requirements.txt                 # Python dependencies
+├── alembic/                         # Database migrations
+│   ├── env.py
+│   └── versions/
+│       └── 20260130_001_initial_schema.py
+└── app/
+    ├── __init__.py
+    ├── config.py                    # Settings (env vars)
+    ├── database.py                  # SQLAlchemy setup
+    ├── api/
+    │   ├── __init__.py
+    │   ├── deps.py                  # Dependencies (auth, db)
+    │   └── v1/
+    │       ├── __init__.py
+    │       ├── router.py            # API router
+    │       └── endpoints/
+    │           ├── __init__.py
+    │           └── auth.py          # Auth endpoints
+    ├── core/
+    │   ├── __init__.py
+    │   └── security.py              # JWT + password utils
+    ├── models/
+    │   ├── __init__.py
+    │   └── user.py                  # User + Transaction models
+    └── schemas/
+        ├── __init__.py
+        ├── auth.py                  # Auth request/response schemas
+        └── user.py                  # User schemas
+```
+
+#### To Run Backend
+```bash
+cd backend
+pip install -r requirements.txt
+
+# Set environment variables (or create .env file)
+export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/fiscally"
+export SECRET_KEY="your-random-secret-key"
+export DEBUG=true
+
+# Run migrations
+alembic upgrade head
+
+# Start server
+uvicorn main:app --reload --port 8000
+```
+
+#### Next Steps: Phase 2
+- Profile endpoints (`GET/PATCH /api/v1/profile`)
+- Transaction CRUD (`GET/POST /api/v1/transactions`)
+- Voice transaction parsing (`POST /api/v1/transactions/voice`)
+- Transaction Processing Agent (categorization + anomaly detection)
