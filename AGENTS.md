@@ -451,16 +451,47 @@ alembic upgrade head
 uvicorn main:app --reload --port 8000
 ```
 
-### Phase 2: Core Transaction Flow 🚧 NEXT
-**Status:** Auth + schema exist, but “core money flow” endpoints are not implemented yet.
+### Phase 2: Core Transaction Flow 🚧 IN PROGRESS
+**Status:** Transaction CRUD endpoints implemented. LLM integration pending (separate team).
 
-#### What Phase 2 should deliver
-- Profile endpoints (`GET/PATCH /api/v1/profile`)
-- Transaction CRUD (`GET/POST /api/v1/transactions`)
-- Voice transaction parsing (`POST /api/v1/transactions/voice`)
-- Wiring: `POST /transactions` should call `TransactionAgent` and persist categorization/anomaly metadata
+#### Completed (2026-01-30)
+
+##### Transaction Schemas ✅
+- `backend/app/schemas/transaction.py`:
+  - `TransactionCreate` - Request schema with amount validation, category validation
+  - `TransactionResponse` - Single transaction response
+  - `TransactionListResponse` - Paginated list with metadata
+  - `TransactionSummary` - For stats/analytics
+  - Valid categories: `food_delivery`, `restaurant`, `groceries`, `transport`, `shopping`, `entertainment`, `bills`, `subscriptions`, `health`, `education`, `other`
+
+##### Transaction Endpoints ✅
+- `backend/app/api/v1/endpoints/transactions.py`:
+  - `POST /api/v1/transactions` - Create transaction
+    - Validates amount (positive number)
+    - Validates category (if provided)
+    - Sets `transaction_at` to now if not provided
+    - **TODO for LLM team**: Add TransactionAgent call for auto-categorization
+  - `GET /api/v1/transactions` - List with filters
+    - Pagination: `limit`, `offset`
+    - Filters: `category`, `start_date`, `end_date`, `merchant` (partial match)
+    - Ordered by `transaction_at` descending
+  - `GET /api/v1/transactions/{id}` - Get single transaction
+  - `PATCH /api/v1/transactions/{id}` - Update category/merchant/note
+  - `DELETE /api/v1/transactions/{id}` - Delete transaction
+
+##### Router Updated ✅
+- `backend/app/api/v1/router.py` - Transactions router wired at `/transactions`
+
+#### Remaining Phase 2 Work
+- [ ] Profile endpoints (`GET/PATCH /api/v1/profile`)
+- [ ] Voice transaction parsing (`POST /api/v1/transactions/voice`) - needs Whisper integration
+- [ ] **LLM Team**: Wire `TransactionAgent` in `POST /transactions` for:
+  - Auto-categorization when category is None
+  - Anomaly detection (set `is_anomaly`, `anomaly_reason`)
+  - Pattern updates (update user's `patterns` context)
 
 #### Notes for contributors (multi-agent safe)
 - Keep endpoints thin; put orchestration in `backend/app/ai/agents.py` and DB logic in the model/service layer.
 - `ContextManager` currently has TODO stubs; Phase 2 should replace stubs with real DB queries/updates.
+- Transaction endpoints have TODO comments showing where to plug in LLM logic.
 - When adding new routes, also update the **API Contract** section above.
