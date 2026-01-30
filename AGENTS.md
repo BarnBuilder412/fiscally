@@ -51,33 +51,25 @@ Four primary agents operate on user data:
 
 ### Backend (FastAPI)
 ```bash
-# Setup (when backend code exists)
+# Setup
 cd backend
 pip install -r requirements.txt
 
-# Run development server
+# Env
+cp .env.example .env  # then edit values
+
+# Database migrations
+alembic upgrade head
+
+# Run dev server
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
-# Run with environment variables
-export DATABASE_URL="postgresql://..."
-export OPENAI_API_KEY="..."
-uvicorn main:app --reload
+# Quick AI sanity check (requires OPENAI_API_KEY)
+python test_ai.py
 
-# Database migrations (when using Alembic)
-alembic upgrade head
-alembic revision --autogenerate -m "description"
-
-# Run tests
-pytest tests/ -v
-pytest tests/test_agents.py -v  # Test specific agent logic
-
-# Check linting
-black . --check
-ruff check .
-
-# Format code
+# Lint/format
 black .
-ruff check . --fix
+ruff check .
 ```
 
 ### Mobile (React Native/Expo)
@@ -115,32 +107,46 @@ eas build --platform ios
 
 ## Code Structure Guidelines
 
-### Backend Structure (Planned)
+### Backend Structure (Current)
 ```
 backend/
-├── main.py              # FastAPI app entry
-├── api/
-│   ├── auth.py          # Authentication endpoints
-│   ├── transactions.py  # Transaction CRUD + voice parsing
-│   ├── chat.py          # Conversational interface
-│   └── insights.py      # Insight retrieval
-├── agents/
-│   ├── transaction_processor.py  # Transaction categorization & anomaly detection
-│   ├── insight_generator.py      # Weekly digest + pattern analysis
-│   ├── chat_handler.py           # Context-aware chat with tools
-│   └── alert_checker.py          # Real-time alert logic
-├── models/
-│   ├── user.py          # User, Profile models
-│   ├── transaction.py   # Transaction model
-│   └── context.py       # JSONB context schemas
-├── llm/
-│   ├── prompts.py       # All LLM prompt templates
-│   ├── client.py        # OpenAI client wrapper
-│   └── opik_tracker.py  # Opik evaluation integration
-└── utils/
-    ├── sms_parser.py    # Bank SMS parsing patterns
-    └── notifications.py # FCM push service
+├── main.py
+├── requirements.txt
+├── .env.example
+├── alembic.ini
+├── alembic/
+│   ├── env.py
+│   ├── script.py.mako
+│   └── versions/
+│       └── 20260130_001_initial_schema.py
+└── app/
+    ├── __init__.py
+    ├── config.py
+    ├── database.py
+    ├── core/
+    │   └── security.py
+    ├── models/
+    │   └── user.py
+    ├── schemas/
+    │   ├── auth.py
+    │   └── user.py
+    ├── api/
+    │   ├── deps.py
+    │   └── v1/
+    │       ├── router.py
+    │       └── endpoints/
+    │           └── auth.py
+    └── ai/
+        ├── prompts.py
+        ├── llm_client.py
+        ├── context_manager.py
+        └── agents.py
 ```
+
+### Backend Structure (Planned / Target)
+- Keep extending under `backend/app/`.
+- New API endpoints go in `backend/app/api/v1/endpoints/`.
+- Non-HTTP business logic should live outside `endpoints/` (e.g. `backend/app/ai/`, later `backend/app/services/`).
 
 ### Mobile Structure (Planned)
 ```
@@ -198,7 +204,9 @@ All endpoints follow `/api/v1/` convention:
 ### Authentication
 - `POST /api/v1/auth/signup` - Create account
 - `POST /api/v1/auth/login` - JWT token generation
-- `POST /api/v1/auth/refresh` - Token refresh
+- `POST /api/v1/auth/refresh` - Token refresh (rotation)
+- `POST /api/v1/auth/logout` - Invalidate refresh token
+- `GET /api/v1/auth/me` - Get current user + context
 
 ### Profile & Context
 - `GET /api/v1/profile` - Returns user profile + full context
@@ -295,12 +303,13 @@ Track these operations with custom metrics:
 When implementing features:
 
 1. **Always reference the spec** - `docs/FISCALLY_MVP_SPEC.md` is the source of truth
-2. **Context-first design** - Every agent operation should load and potentially update user context
-3. **Prompt templates** - Store all LLM prompts in `backend/llm/prompts.py` for version control
-4. **Opik everything** - Track all LLM calls for evaluation and debugging
-5. **Test SMS parsing thoroughly** - Edge cases in bank SMS formats are critical
-6. **Mobile-first UX** - Prioritize speed: < 3 taps to add expense
-7. **Offline support** - Use SQLite cache + sync queue for all mobile operations
+2. **Context-first design** - Every AI operation should load full context (PROFILE + PATTERNS + INSIGHTS + GOALS + MEMORY) and update it when needed
+3. **Prompt templates** - Store all LLM prompts in `backend/app/ai/prompts.py` (single source of truth)
+4. **LLM entrypoint** - Use `backend/app/ai/llm_client.py` for OpenAI calls (don’t call OpenAI directly from endpoints)
+5. **Agent orchestration** - Use `backend/app/ai/agents.py` for transaction/chat/insights flows; keep endpoints thin
+6. **DB↔Context boundary** - `backend/app/ai/context_manager.py` is the interface between agents and the database layer
+7. **Keep `.env.example` in sync** - If you add an env var, update `backend/.env.example`
+8. **Keep `requirements.txt` in sync** - If you add a dependency, update `backend/requirements.txt`
 
 ## Common Pitfalls to Avoid
 
@@ -315,10 +324,24 @@ When implementing features:
 
 ---
 
+## Current Development Status (Handoff)
+
+### Where we are (as of 2026-01-30)
+- Backend foundation is complete: auth + DB schema + migrations are in place.
+- AI scaffolding exists (`backend/app/ai/`), but is not fully wired to DB yet (`ContextManager` has TODO stubs).
+- We are entering **Phase 2: Core Transaction Flow**.
+
+### How to keep development “continuous” across multiple agents
+- Treat this file (`AGENTS.md`) as the shared handoff doc:
+  - When you complete a meaningful slice (endpoint + schema + tests), update **Implementation Progress** and the **API Contract**.
+  - If you add an env var or dependency, also update `backend/.env.example` and `backend/requirements.txt`.
+- Keep endpoints thin; orchestration belongs in `backend/app/ai/agents.py` and DB/context logic in the model/service layer.
+- Don’t introduce a new “second” prompt file; prompts must live in `backend/app/ai/prompts.py`.
+
 ## Implementation Progress
 
 ### Phase 1: Backend Foundation ✅ COMPLETE
-**Status:** All 4 steps completed
+**Status:** Core backend foundation is in place (FastAPI + DB schema + auth + AI scaffolding)
 
 #### Step 1: FastAPI Project Setup ✅
 - `backend/requirements.txt` - All dependencies (FastAPI, SQLAlchemy, JWT, bcrypt, etc.)
@@ -355,21 +378,30 @@ When implementing features:
   - Token hashing for rotation security
 
 #### Step 4: Auth Endpoints ✅
-- `backend/app/api/v1/endpoints/auth.py` - All auth routes:
+- `backend/app/api/v1/endpoints/auth.py` - Auth routes:
   - `POST /api/v1/auth/signup` - Register + return tokens
   - `POST /api/v1/auth/login` - Authenticate + return tokens
   - `POST /api/v1/auth/refresh` - Token rotation
   - `POST /api/v1/auth/logout` - Invalidate refresh token
   - `GET /api/v1/auth/me` - Get current user + context
-- `backend/app/api/v1/router.py` - Wired up auth router
+- `backend/app/api/v1/router.py` - API router wiring
+
+#### Step 5: AI Scaffolding ✅
+- `backend/app/ai/prompts.py` - Prompt library + system personality (SOUL)
+- `backend/app/ai/llm_client.py` - Async OpenAI wrapper (optional Serper search fallback)
+- `backend/app/ai/context_manager.py` - Context interface (DB boundary; currently TODO stubs)
+- `backend/app/ai/agents.py` - Orchestration for transaction/chat/insights/alerts
 
 #### Backend File Structure (Current)
 ```
 backend/
 ├── main.py                          # FastAPI app entry
 ├── requirements.txt                 # Python dependencies
+├── .env.example                     # Environment template
+├── alembic.ini                      # Alembic config
 ├── alembic/                         # Database migrations
 │   ├── env.py
+│   ├── script.py.mako
 │   └── versions/
 │       └── 20260130_001_initial_schema.py
 └── app/
@@ -385,6 +417,11 @@ backend/
     │       └── endpoints/
     │           ├── __init__.py
     │           └── auth.py          # Auth endpoints
+    ├── ai/                          # LLM + agent orchestration
+    │   ├── prompts.py
+    │   ├── llm_client.py
+    │   ├── context_manager.py
+    │   └── agents.py
     ├── core/
     │   ├── __init__.py
     │   └── security.py              # JWT + password utils
@@ -414,8 +451,16 @@ alembic upgrade head
 uvicorn main:app --reload --port 8000
 ```
 
-#### Next Steps: Phase 2
+### Phase 2: Core Transaction Flow 🚧 NEXT
+**Status:** Auth + schema exist, but “core money flow” endpoints are not implemented yet.
+
+#### What Phase 2 should deliver
 - Profile endpoints (`GET/PATCH /api/v1/profile`)
 - Transaction CRUD (`GET/POST /api/v1/transactions`)
 - Voice transaction parsing (`POST /api/v1/transactions/voice`)
-- Transaction Processing Agent (categorization + anomaly detection)
+- Wiring: `POST /transactions` should call `TransactionAgent` and persist categorization/anomaly metadata
+
+#### Notes for contributors (multi-agent safe)
+- Keep endpoints thin; put orchestration in `backend/app/ai/agents.py` and DB logic in the model/service layer.
+- `ContextManager` currently has TODO stubs; Phase 2 should replace stubs with real DB queries/updates.
+- When adding new routes, also update the **API Contract** section above.
