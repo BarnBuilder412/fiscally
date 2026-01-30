@@ -8,7 +8,12 @@ This is the interface between AI agents and the database.
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field, asdict
+from decimal import Decimal
 import json
+import uuid as uuid_module
+
+from sqlalchemy import desc, func
+from sqlalchemy.orm import Session
 
 
 @dataclass
@@ -76,18 +81,22 @@ class ContextManager:
     """
     Manages loading and updating user context.
     
-    This class will be connected to the database layer.
-    For now, it defines the interface that the DB layer needs to implement.
+    This class connects to the database layer via SQLAlchemy session.
     """
     
-    def __init__(self, db_session=None):
+    def __init__(self, db_session: Optional[Session] = None):
         """
         Initialize with database session.
         
         Args:
-            db_session: SQLAlchemy async session (injected by FastAPI)
+            db_session: SQLAlchemy session (injected by FastAPI)
         """
         self.db = db_session
+    
+    def _get_user(self, user_id: str):
+        """Get user from DB by ID."""
+        from app.models.user import User
+        return self.db.query(User).filter(User.id == user_id).first()
     
     # =========================================================================
     # LOAD CONTEXT (from DB)
@@ -99,9 +108,6 @@ class ContextManager:
         
         Returns dict with: profile, patterns, goals, memory, insights
         """
-        # TODO: Replace with actual DB queries once schema is ready
-        # For now, return structure for integration
-        
         profile = await self.load_profile(user_id)
         patterns = await self.load_patterns(user_id)
         goals = await self.load_goals(user_id)
@@ -117,33 +123,43 @@ class ContextManager:
         }
     
     async def load_profile(self, user_id: str) -> Dict[str, Any]:
-        """Load user profile."""
-        # TODO: DB query
-        # SELECT * FROM user_profiles WHERE user_id = ?
+        """Load user profile from JSONB."""
+        user = self._get_user(user_id)
+        if user:
+            return user.profile or {}
         return {}
     
     async def load_patterns(self, user_id: str) -> Dict[str, Any]:
-        """Load spending patterns."""
-        # TODO: DB query  
-        # SELECT patterns FROM user_context WHERE user_id = ?
+        """Load spending patterns from JSONB."""
+        user = self._get_user(user_id)
+        if user:
+            return user.patterns or {}
         return {}
     
     async def load_goals(self, user_id: str) -> List[Dict[str, Any]]:
-        """Load active goals."""
-        # TODO: DB query
-        # SELECT * FROM user_goals WHERE user_id = ? AND status = 'active'
+        """Load active goals from JSONB."""
+        user = self._get_user(user_id)
+        if user and user.goals:
+            return user.goals.get("active_goals", [])
         return []
     
     async def load_memory(self, user_id: str) -> Dict[str, Any]:
         """Load user memory (facts, conversation summary)."""
-        # TODO: DB query
-        # SELECT memory FROM user_context WHERE user_id = ?
+        user = self._get_user(user_id)
+        if user and user.memory:
+            return {
+                "facts": user.memory.get("facts", []),
+                "conversation_summary": user.memory.get("conversation_summary", "")
+            }
         return {"facts": [], "conversation_summary": ""}
     
     async def load_active_insights(self, user_id: str) -> List[Dict[str, Any]]:
         """Load active (undelivered/undismissed) insights."""
-        # TODO: DB query
-        # SELECT * FROM user_insights WHERE user_id = ? AND dismissed = false
+        user = self._get_user(user_id)
+        if user and user.insights:
+            active = user.insights.get("active_insights", [])
+            # Filter out dismissed ones
+            return [i for i in active if not i.get("dismissed", False)]
         return []
 
     # =========================================================================
@@ -161,18 +177,31 @@ class ContextManager:
         Returns:
             Dict with category_avg, category_max, typical_merchants, etc.
         """
-        # TODO: DB aggregation queries
-        # This will need:
-        # - AVG(amount) WHERE category = ?
-        # - MAX(amount) WHERE category = ?
-        # - Distinct merchants for category
-        # - Budget for category
+        from app.models.user import Transaction
+        
+        query = self.db.query(Transaction).filter(Transaction.user_id == user_id)
+        
+        if category:
+            query = query.filter(Transaction.category == category)
+        
+        transactions = query.all()
+        
+        if not transactions:
+            return {
+                "category_avg": 0,
+                "category_max": 0,
+                "typical_merchants": [],
+                "category_budget": None
+            }
+        
+        amounts = [float(t.amount) for t in transactions]
+        merchants = [t.merchant for t in transactions if t.merchant]
         
         return {
-            "category_avg": 0,
-            "category_max": 0,
-            "typical_merchants": [],
-            "category_budget": None
+            "category_avg": sum(amounts) / len(amounts) if amounts else 0,
+            "category_max": max(amounts) if amounts else 0,
+            "typical_merchants": list(set(merchants))[:10],
+            "category_budget": None  # TODO: Get from user goals
         }
     
     async def get_category_total(
@@ -182,10 +211,30 @@ class ContextManager:
         period: str = "month"  # "week", "month", "year"
     ) -> float:
         """Get total spending in category for period."""
-        # TODO: DB query
-        # SELECT SUM(amount) FROM transactions 
-        # WHERE user_id = ? AND category = ? AND timestamp > ?
-        return 0.0
+        from app.models.user import Transaction
+        
+        # Calculate start date based on period
+        now = datetime.utcnow()
+        if period == "week":
+            start_date = now - timedelta(days=7)
+        elif period == "month":
+            start_date = now - timedelta(days=30)
+        elif period == "year":
+            start_date = now - timedelta(days=365)
+        else:
+            start_date = now - timedelta(days=30)
+        
+        result = (
+            self.db.query(func.sum(func.cast(Transaction.amount, Decimal)))
+            .filter(
+                Transaction.user_id == user_id,
+                Transaction.category == category,
+                Transaction.transaction_at >= start_date
+            )
+            .scalar()
+        )
+        
+        return float(result) if result else 0.0
 
     # =========================================================================
     # UPDATE CONTEXT (to DB)
@@ -197,9 +246,12 @@ class ContextManager:
         patterns: Dict[str, Any]
     ) -> None:
         """Update user spending patterns."""
-        # TODO: DB update
-        # UPDATE user_context SET patterns = ? WHERE user_id = ?
-        pass
+        user = self._get_user(user_id)
+        if user:
+            existing = user.patterns or {}
+            existing.update(patterns)
+            user.patterns = existing
+            self.db.commit()
     
     async def add_memory_fact(
         self, 
@@ -208,11 +260,19 @@ class ContextManager:
         category: str
     ) -> None:
         """Add a fact to user memory."""
-        # TODO: DB update (JSONB append)
-        # UPDATE user_context 
-        # SET memory = jsonb_set(memory, '{facts}', memory->'facts' || ?)
-        # WHERE user_id = ?
-        pass
+        user = self._get_user(user_id)
+        if user:
+            memory = user.memory or {"facts": [], "conversation_summary": ""}
+            facts = memory.get("facts", [])
+            facts.append({
+                "text": fact,
+                "category": category,
+                "added": datetime.utcnow().isoformat()
+            })
+            memory["facts"] = facts[-50]  # Keep last 50 facts
+            memory["last_updated"] = datetime.utcnow().isoformat()
+            user.memory = memory
+            self.db.commit()
     
     async def add_insight(
         self, 
@@ -220,9 +280,23 @@ class ContextManager:
         insight: UserInsight
     ) -> None:
         """Store a new insight."""
-        # TODO: DB insert
-        # INSERT INTO user_insights (user_id, type, message, ...) VALUES (...)
-        pass
+        user = self._get_user(user_id)
+        if user:
+            insights = user.insights or {"active_insights": [], "delivered_insights": [], "dismissed_insights": []}
+            active = insights.get("active_insights", [])
+            active.append({
+                "id": insight.id,
+                "type": insight.type,
+                "message": insight.message,
+                "confidence": insight.confidence,
+                "actionable": insight.actionable,
+                "created_at": insight.created_at.isoformat() if isinstance(insight.created_at, datetime) else insight.created_at,
+                "delivered": insight.delivered,
+                "dismissed": insight.dismissed
+            })
+            insights["active_insights"] = active
+            user.insights = insights
+            self.db.commit()
     
     async def mark_insight_delivered(
         self, 
@@ -230,9 +304,15 @@ class ContextManager:
         insight_id: str
     ) -> None:
         """Mark insight as delivered."""
-        # TODO: DB update
-        # UPDATE user_insights SET delivered = true WHERE id = ?
-        pass
+        user = self._get_user(user_id)
+        if user and user.insights:
+            active = user.insights.get("active_insights", [])
+            for insight in active:
+                if insight.get("id") == insight_id:
+                    insight["delivered"] = True
+                    break
+            user.insights["active_insights"] = active
+            self.db.commit()
     
     async def dismiss_insight(
         self, 
@@ -240,9 +320,20 @@ class ContextManager:
         insight_id: str
     ) -> None:
         """Mark insight as dismissed."""
-        # TODO: DB update
-        # UPDATE user_insights SET dismissed = true WHERE id = ?
-        pass
+        user = self._get_user(user_id)
+        if user and user.insights:
+            active = user.insights.get("active_insights", [])
+            dismissed = user.insights.get("dismissed_insights", [])
+            
+            for i, insight in enumerate(active):
+                if insight.get("id") == insight_id:
+                    insight["dismissed"] = True
+                    dismissed.append(active.pop(i))
+                    break
+            
+            user.insights["active_insights"] = active
+            user.insights["dismissed_insights"] = dismissed
+            self.db.commit()
     
     async def update_goal_progress(
         self, 
@@ -251,9 +342,15 @@ class ContextManager:
         current_amount: float
     ) -> None:
         """Update goal progress."""
-        # TODO: DB update
-        # UPDATE user_goals SET current_amount = ? WHERE id = ?
-        pass
+        user = self._get_user(user_id)
+        if user and user.goals:
+            active = user.goals.get("active_goals", [])
+            for goal in active:
+                if goal.get("id") == goal_id:
+                    goal["current_amount"] = current_amount
+                    break
+            user.goals["active_goals"] = active
+            self.db.commit()
 
     # =========================================================================
     # TRANSACTION QUERIES (for chat)
@@ -271,12 +368,44 @@ class ContextManager:
         Get user transactions with filters.
         Used to provide context for chat queries.
         """
-        # TODO: DB query with filters
-        # SELECT * FROM transactions WHERE user_id = ? 
-        # AND timestamp > NOW() - INTERVAL '? days'
-        # AND (category = ? OR ? IS NULL)
-        # ORDER BY timestamp DESC LIMIT ?
-        return []
+        from app.models.user import Transaction
+        
+        start_date = datetime.utcnow() - timedelta(days=days)
+        
+        query = (
+            self.db.query(Transaction)
+            .filter(
+                Transaction.user_id == user_id,
+                Transaction.transaction_at >= start_date
+            )
+        )
+        
+        if category:
+            query = query.filter(Transaction.category == category)
+        
+        if merchant:
+            query = query.filter(Transaction.merchant.ilike(f"%{merchant}%"))
+        
+        transactions = (
+            query
+            .order_by(desc(Transaction.transaction_at))
+            .limit(limit)
+            .all()
+        )
+        
+        return [
+            {
+                "id": str(t.id),
+                "amount": float(t.amount),
+                "merchant": t.merchant,
+                "category": t.category,
+                "note": t.note,
+                "source": t.source,
+                "timestamp": t.transaction_at.isoformat() if t.transaction_at else None,
+                "is_anomaly": t.is_anomaly
+            }
+            for t in transactions
+        ]
     
     async def get_spending_summary(
         self,
@@ -294,12 +423,50 @@ class ContextManager:
                 "avg_transaction": float
             }
         """
-        # TODO: DB aggregation
+        from app.models.user import Transaction
+        
+        # Calculate start date
+        now = datetime.utcnow()
+        if period == "week":
+            start_date = now - timedelta(days=7)
+        elif period == "month":
+            start_date = now - timedelta(days=30)
+        elif period == "year":
+            start_date = now - timedelta(days=365)
+        else:
+            start_date = now - timedelta(days=30)
+        
+        transactions = (
+            self.db.query(Transaction)
+            .filter(
+                Transaction.user_id == user_id,
+                Transaction.transaction_at >= start_date
+            )
+            .all()
+        )
+        
+        if not transactions:
+            return {
+                "total": 0,
+                "by_category": {},
+                "transaction_count": 0,
+                "avg_transaction": 0
+            }
+        
+        total = sum(float(t.amount) for t in transactions)
+        count = len(transactions)
+        
+        # Group by category
+        by_category = {}
+        for t in transactions:
+            cat = t.category or "other"
+            by_category[cat] = by_category.get(cat, 0) + float(t.amount)
+        
         return {
-            "total": 0,
-            "by_category": {},
-            "transaction_count": 0,
-            "avg_transaction": 0
+            "total": total,
+            "by_category": by_category,
+            "transaction_count": count,
+            "avg_transaction": total / count if count > 0 else 0
         }
 
     # =========================================================================
@@ -316,7 +483,11 @@ class ContextManager:
         
         lines = []
         for t in transactions[:20]:  # Limit to avoid token overflow
-            line = f"- ₹{t.get('amount', 0):,} at {t.get('merchant', 'Unknown')}"
+            amount = t.get('amount', 0)
+            if isinstance(amount, (int, float)):
+                line = f"- ₹{amount:,} at {t.get('merchant', 'Unknown')}"
+            else:
+                line = f"- ₹{amount} at {t.get('merchant', 'Unknown')}"
             line += f" ({t.get('category', 'other')})"
             if t.get('timestamp'):
                 line += f" on {t['timestamp']}"
