@@ -12,11 +12,12 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import { 
-  Colors, 
-  Spacing, 
-  FontSize, 
-  FontWeight, 
+import { ScrollView } from 'react-native';
+import {
+  Colors,
+  Spacing,
+  FontSize,
+  FontWeight,
   BorderRadius,
 } from '@/constants/theme';
 import { getCategoryIcon } from '@/constants/categories';
@@ -66,7 +67,7 @@ export default function VoiceInputScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setState('recording');
     setTranscript('');
-    
+
     // Simulate live transcript
     setTimeout(() => setTranscript('spent'), 500);
     setTimeout(() => setTranscript('spent 450'), 1000);
@@ -75,10 +76,10 @@ export default function VoiceInputScreen() {
 
   const handlePressOut = () => {
     if (state !== 'recording') return;
-    
+
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setState('processing');
-    
+
     // Simulate processing
     setTimeout(() => {
       setResult({
@@ -93,7 +94,7 @@ export default function VoiceInputScreen() {
 
   const handleConfirm = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    router.back();
+    router.replace('/(tabs)/trends');
   };
 
   const handleEdit = () => {
@@ -115,11 +116,11 @@ export default function VoiceInputScreen() {
             <Text style={styles.example}>"spent 450 on swiggy"</Text>
           </>
         );
-      
+
       case 'recording':
         return (
           <>
-            <Animated.View 
+            <Animated.View
               style={[
                 styles.recordingIndicator,
                 { transform: [{ scale: pulseAnim }] }
@@ -130,7 +131,7 @@ export default function VoiceInputScreen() {
             <Text style={styles.recordingText}>Recording...</Text>
             <View style={styles.waveformContainer}>
               {[...Array(10)].map((_, i) => (
-                <Animated.View 
+                <Animated.View
                   key={i}
                   style={[
                     styles.waveformBar,
@@ -144,7 +145,7 @@ export default function VoiceInputScreen() {
             )}
           </>
         );
-      
+
       case 'processing':
         return (
           <>
@@ -154,45 +155,116 @@ export default function VoiceInputScreen() {
             <Text style={styles.processingText}>Processing...</Text>
           </>
         );
-      
+
       case 'result':
         return (
-          <>
-            <View style={styles.successIcon}>
-              <Ionicons name="checkmark-circle" size={64} color={Colors.success} />
-            </View>
-            <Text style={styles.successText}>Got it!</Text>
-            
-            <View style={styles.resultCard}>
-              <Text style={styles.resultAmount}>₹{result?.amount}</Text>
-              <Text style={styles.resultMerchant}>{result?.merchant}</Text>
-              <View style={styles.resultCategory}>
-                <Ionicons 
-                  name={getCategoryIcon(result?.category || 'other')} 
-                  size={16} 
-                  color={Colors.textSecondary} 
-                />
-                <Text style={styles.resultCategoryText}>
-                  {result?.category === 'food' ? 'Food Delivery' : result?.category}
+          <ScrollView
+            style={styles.resultScroll}
+            contentContainerStyle={styles.resultContainer}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Top Section */}
+            <View style={styles.topSection}>
+              <View style={styles.transcriptContainer}>
+                <Text style={styles.voiceCapturedLabel}>VOICE CAPTURED</Text>
+                <Text style={styles.voiceTranscript}>
+                  "{transcript || 'Spent 450 on lunch today'}"
                 </Text>
+              </View>
+
+              <View style={styles.waveformIcon}>
+                <Ionicons name="bar-chart" size={48} color={Colors.accent} />
               </View>
             </View>
 
-            <View style={styles.resultActions}>
-              <Button
-                title="✓ Confirm"
+            <Text style={styles.confirmTitle}>Confirm Transaction</Text>
+
+            {/* Transaction Card */}
+            <LinearGradient
+              colors={['#A49782', '#C6Baa2']} // Gradient approximation
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.txnCard}
+            >
+              {/* Amount Row */}
+              <View style={styles.txnRow}>
+                <View style={styles.rowLeft}>
+                  <View style={styles.iconContainer}>
+                    <Ionicons name="cash-outline" size={24} color={Colors.gray800} />
+                  </View>
+                  <View style={styles.rowContent}>
+                    <Text style={styles.rowLabel}>AMOUNT</Text>
+                    <Text style={styles.rowValue}>₹{result?.amount}</Text>
+                  </View>
+                </View>
+                <TouchableOpacity onPress={handleEdit}>
+                  <Ionicons name="pencil" size={20} color="rgba(255,255,255,0.6)" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.divider} />
+
+              {/* Merchant Row */}
+              <View style={styles.txnRow}>
+                <View style={styles.rowLeft}>
+                  <View style={styles.iconContainer}>
+                    <Ionicons name="storefront-outline" size={24} color={Colors.gray800} />
+                  </View>
+                  <View style={styles.rowContent}>
+                    <Text style={styles.rowLabel}>MERCHANT</Text>
+                    <Text style={styles.rowValue}>{result?.merchant}</Text>
+                  </View>
+                </View>
+                <TouchableOpacity onPress={handleEdit}>
+                  <Ionicons name="pencil" size={20} color="rgba(255,255,255,0.6)" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.divider} />
+
+              {/* Category Row */}
+              <View style={styles.txnRow}>
+                <View style={styles.rowLeft}>
+                  <View style={styles.iconContainer}>
+                    <Ionicons
+                      name={getCategoryIcon(result?.category || 'other')}
+                      size={24}
+                      color={Colors.gray800}
+                    />
+                  </View>
+                  <View style={styles.rowContent}>
+                    <Text style={styles.rowLabel}>CATEGORY</Text>
+                    <Text style={styles.rowValue}>
+                      {result?.category === 'food' ? 'Food & Dining' : result?.category}
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity onPress={handleEdit}>
+                  <Ionicons name="pencil" size={20} color="rgba(255,255,255,0.6)" />
+                </TouchableOpacity>
+              </View>
+            </LinearGradient>
+
+            {/* Actions */}
+            <View style={styles.actionContainer}>
+              <TouchableOpacity
+                style={styles.confirmButton}
                 onPress={handleConfirm}
-                variant="primary"
-                style={styles.actionButton}
-              />
-              <Button
-                title="✏️ Edit"
-                onPress={handleEdit}
-                variant="outline"
-                style={styles.actionButton}
-              />
+              >
+                <Text style={styles.confirmButtonText}>Confirm Entry</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => router.back()}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
             </View>
-          </>
+
+            {/* Bottom Spacer */}
+            <View style={{ height: 40 }} />
+          </ScrollView>
         );
     }
   };
@@ -226,8 +298,8 @@ export default function VoiceInputScreen() {
           >
             <LinearGradient
               colors={
-                state === 'recording' 
-                  ? [Colors.error, '#DC2626'] 
+                state === 'recording'
+                  ? [Colors.error, '#DC2626']
                   : [Colors.primary, Colors.primaryDark]
               }
               style={[
@@ -235,10 +307,10 @@ export default function VoiceInputScreen() {
                 state === 'recording' && styles.micButtonRecording,
               ]}
             >
-              <Ionicons 
-                name={state === 'recording' ? 'mic' : 'mic-outline'} 
-                size={40} 
-                color={Colors.white} 
+              <Ionicons
+                name={state === 'recording' ? 'mic' : 'mic-outline'}
+                size={40}
+                color={Colors.white}
               />
             </LinearGradient>
           </Pressable>
@@ -278,9 +350,144 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    justifyContent: 'center',
+    paddingHorizontal: 0, // Remove padding to allow full width usage if needed
+  },
+  resultScroll: {
+    flex: 1,
+    width: '100%',
+  },
+  resultContainer: {
     alignItems: 'center',
     paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.md,
+  },
+  topSection: {
+    alignItems: 'center',
+    marginBottom: Spacing.xl,
+    width: '100%',
+  },
+  transcriptContainer: {
+    backgroundColor: '#FFF9F2', // Light cream/orange tint
+    width: '100%',
+    padding: Spacing.xl,
+    borderRadius: BorderRadius.xxl,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FFE0C2',
+    marginBottom: Spacing.xl,
+  },
+  voiceCapturedLabel: {
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.bold,
+    color: '#D97706', // Amber/Orange
+    letterSpacing: 1.5,
+    marginBottom: Spacing.sm,
+    textTransform: 'uppercase',
+  },
+  voiceTranscript: {
+    fontSize: FontSize.xl,
+    fontStyle: 'italic',
+    color: Colors.gray800,
+    textAlign: 'center',
+    lineHeight: 28,
+  },
+  waveformIcon: {
+    marginVertical: Spacing.md,
+    opacity: 0.8,
+  },
+  confirmTitle: {
+    fontSize: FontSize.xl,
+    fontWeight: FontWeight.bold,
+    color: Colors.gray900,
+    marginBottom: Spacing.lg,
+  },
+  txnCard: {
+    width: '100%',
+    borderRadius: BorderRadius.xxl,
+    padding: Spacing.lg,
+    marginBottom: Spacing.xxl,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  txnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: Spacing.md,
+  },
+  rowLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  iconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: Spacing.md,
+  },
+  rowContent: {
+    justifyContent: 'center',
+  },
+  rowLabel: {
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.bold,
+    color: 'rgba(50, 40, 30, 0.5)', // Transparent dark
+    marginBottom: 2,
+    letterSpacing: 0.5,
+  },
+  rowValue: {
+    fontSize: FontSize.lg,
+    fontWeight: FontWeight.bold,
+    color: '#2D2723',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    marginLeft: 64, // Align with text
+  },
+  actionContainer: {
+    width: '100%',
+    gap: Spacing.md,
+  },
+  confirmButton: {
+    backgroundColor: '#1F1D1B', // Almost black
+    width: '100%',
+    paddingVertical: Spacing.lg,
+    borderRadius: BorderRadius.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmButtonText: {
+    color: Colors.white,
+    fontSize: FontSize.lg,
+    fontWeight: FontWeight.bold,
+  },
+  cancelButton: {
+    backgroundColor: Colors.white,
+    width: '100%',
+    paddingVertical: Spacing.lg,
+    borderRadius: BorderRadius.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.gray200,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  cancelButtonText: {
+    color: Colors.gray600,
+    fontSize: FontSize.lg,
+    fontWeight: FontWeight.medium,
   },
   instruction: {
     fontSize: FontSize.xl,
@@ -389,7 +596,7 @@ const styles = StyleSheet.create({
   },
   micButtonContainer: {
     alignItems: 'center',
-    paddingBottom: Spacing.xxxl,
+    paddingBottom: Spacing.xxxl * 3, // Moved up significantly
   },
   holdHint: {
     fontSize: FontSize.sm,

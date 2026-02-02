@@ -14,11 +14,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { 
-  Colors, 
-  Spacing, 
-  FontSize, 
-  FontWeight, 
+import {
+  Colors,
+  Spacing,
+  FontSize,
+  FontWeight,
   BorderRadius,
   Shadows,
 } from '@/constants/theme';
@@ -31,7 +31,7 @@ export default function AddExpenseScreen() {
   const { getGridItemWidth, isSmall } = useResponsive();
   const [amount, setAmount] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  
+
   const categoryItemWidth = getGridItemWidth(4, 8, 16);
   const [note, setNote] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -41,16 +41,27 @@ export default function AddExpenseScreen() {
     setSelectedCategory(categoryId);
   };
 
+  const handleSafeBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/(tabs)');
+    }
+  };
+
   const handleSave = async () => {
     if (!amount || !selectedCategory) return;
-    
+
     setIsSubmitting(true);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    
+
     // Simulate API call
     await new Promise(resolve => setTimeout(resolve, 500));
-    
-    router.back();
+
+    // Simulate API call
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    handleSafeBack();
   };
 
   const handleVoicePress = () => {
@@ -64,20 +75,20 @@ export default function AddExpenseScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         style={styles.keyboardView}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()}>
+          <TouchableOpacity onPress={handleSafeBack}>
             <Ionicons name="close" size={28} color={Colors.textPrimary} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Add Expense</Text>
           <View style={{ width: 28 }} />
         </View>
 
-        <ScrollView 
+        <ScrollView
           style={styles.content}
           contentContainerStyle={styles.contentContainer}
           showsVerticalScrollIndicator={false}
@@ -115,15 +126,15 @@ export default function AddExpenseScreen() {
                   ]}
                   onPress={() => handleCategorySelect(category.id)}
                 >
-                  <Ionicons 
-                    name={category.icon} 
-                    size={24} 
-                    color={selectedCategory === category.id ? getCategoryColor(category.id) : Colors.gray500} 
+                  <Ionicons
+                    name={category.icon}
+                    size={24}
+                    color={selectedCategory === category.id ? getCategoryColor(category.id) : Colors.gray500}
                   />
-                  <Text 
+                  <Text
                     style={[
                       styles.categoryName,
-                      selectedCategory === category.id && { 
+                      selectedCategory === category.id && {
                         color: getCategoryColor(category.id),
                         fontWeight: FontWeight.semibold,
                       },
@@ -167,7 +178,7 @@ export default function AddExpenseScreen() {
           </View>
 
           {/* Voice Input */}
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.voiceButton}
             onPress={handleVoicePress}
           >

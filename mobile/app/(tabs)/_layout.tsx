@@ -10,8 +10,8 @@ interface TabBarProps {
 }
 
 type IconName = 'home' | 'home-outline' | 'trending-up' | 'trending-up-outline' |
-                'wallet' | 'wallet-outline' | 'person' | 'person-outline' |
-                'add' | 'chatbubble-ellipses' | 'chatbubble-ellipses-outline';
+  'wallet' | 'wallet-outline' | 'person' | 'person-outline' |
+  'add' | 'chatbubble-ellipses' | 'chatbubble-ellipses-outline';
 
 function CustomTabBar({ state, navigation }: TabBarProps) {
   const insets = useSafeAreaInsets();
@@ -27,14 +27,16 @@ function CustomTabBar({ state, navigation }: TabBarProps) {
 
   return (
     <View style={[styles.tabBarContainer, { paddingBottom: insets.bottom }]}>
-      {/* Floating Chat Button */}
-      <TouchableOpacity
-        style={[styles.floatingChatButton, { bottom: 70 + insets.bottom }]}
-        onPress={() => router.push('/chat' as any)}
-        activeOpacity={0.8}
-      >
-        <Ionicons name="chatbubble-ellipses" size={22} color={Colors.white} />
-      </TouchableOpacity>
+      {/* Floating Chat Button - Hide when on chat screen */}
+      {state.routes[state.index].name !== 'chat' && (
+        <TouchableOpacity
+          style={[styles.floatingChatButton, { bottom: 70 + insets.bottom }]}
+          onPress={() => router.push('/chat' as any)}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="chatbubble-ellipses" size={22} color={Colors.white} />
+        </TouchableOpacity>
+      )}
 
       <View style={styles.tabBar}>
         {tabs.map((tab, index) => {
@@ -99,23 +101,23 @@ export default function TabLayout() {
       <Tabs.Screen name="trends" />
       <Tabs.Screen name="wallet" />
       <Tabs.Screen name="profile" />
-      <Tabs.Screen 
-        name="chat" 
-        options={{ 
+      <Tabs.Screen
+        name="chat"
+        options={{
           href: null,
-        }} 
+        }}
       />
-      <Tabs.Screen 
-        name="stats" 
-        options={{ 
+      <Tabs.Screen
+        name="stats"
+        options={{
           href: null,
-        }} 
+        }}
       />
-      <Tabs.Screen 
-        name="settings" 
-        options={{ 
+      <Tabs.Screen
+        name="settings"
+        options={{
           href: null,
-        }} 
+        }}
       />
     </Tabs>
   );

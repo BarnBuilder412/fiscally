@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { useRouter } from 'expo-router';
 import {
   View,
   Text,
@@ -11,12 +12,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { 
-  Colors, 
-  Spacing, 
-  FontSize, 
-  FontWeight, 
-  BorderRadius 
+import {
+  Colors,
+  Spacing,
+  FontSize,
+  FontWeight,
+  BorderRadius
 } from '@/constants/theme';
 import { ChatMessage } from '@/types';
 
@@ -37,6 +38,7 @@ const INITIAL_MESSAGES: ChatMessage[] = [
 ];
 
 export default function ChatScreen() {
+  const router = useRouter();
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -98,13 +100,17 @@ export default function ChatScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={{ marginRight: Spacing.md }}>
+          <Ionicons name="chevron-back" size={24} color={Colors.textPrimary} />
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>Chat with Fiscally</Text>
+        <View style={{ flex: 1 }} />
         <TouchableOpacity>
           <Ionicons name="ellipsis-horizontal" size={24} color={Colors.textPrimary} />
         </TouchableOpacity>
       </View>
 
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         style={styles.keyboardView}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={90}
@@ -173,11 +179,22 @@ export default function ChatScreen() {
             onChangeText={setInputText}
             multiline
             maxLength={500}
+            returnKeyType="send"
+            onSubmitEditing={() => handleSend()}
+            onKeyPress={(e) => {
+              if (e.nativeEvent.key === 'Enter') {
+                if (Platform.OS === 'web') {
+                  e.preventDefault();
+                }
+                handleSend();
+              }
+            }}
+            blurOnSubmit={false} // Keep keyboard open after sending
           />
           <TouchableOpacity style={styles.micButton}>
             <Ionicons name="mic" size={20} color={Colors.gray500} />
           </TouchableOpacity>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[
               styles.sendButton,
               inputText.trim() && styles.sendButtonActive,
@@ -185,10 +202,10 @@ export default function ChatScreen() {
             onPress={() => handleSend()}
             disabled={!inputText.trim()}
           >
-            <Ionicons 
-              name="send" 
-              size={18} 
-              color={inputText.trim() ? Colors.white : Colors.gray400} 
+            <Ionicons
+              name="send"
+              size={18}
+              color={inputText.trim() ? Colors.white : Colors.gray400}
             />
           </TouchableOpacity>
         </View>
@@ -308,13 +325,15 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
     borderTopWidth: 1,
     borderTopColor: Colors.primary + '1A',
+    marginBottom: 60, // Add space for bottom tab bar
   },
   input: {
     flex: 1,
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.xl,
     paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
+    paddingVertical: Spacing.sm, // Reduced height
+    textAlignVertical: 'center', // Center text vertically
     fontSize: FontSize.md,
     color: Colors.textPrimary,
     maxHeight: 100,

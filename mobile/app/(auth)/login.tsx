@@ -11,12 +11,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, Link } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { 
-  Colors, 
-  Spacing, 
-  FontSize, 
-  FontWeight, 
-  BorderRadius 
+import {
+  Colors,
+  Spacing,
+  FontSize,
+  FontWeight,
+  BorderRadius
 } from '@/constants/theme';
 import { Button, Input } from '@/components';
 
@@ -46,29 +46,29 @@ export default function LoginScreen() {
 
   const handleLogin = async () => {
     if (!validate()) return;
-    
+
     setLoading(true);
     // Simulate API call
     await new Promise(resolve => setTimeout(resolve, 1500));
     setLoading(false);
-    
+
     router.replace('/(tabs)');
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         style={styles.keyboardView}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView 
+        <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
           {/* Logo */}
           <View style={styles.logoContainer}>
             <View style={styles.logo}>
-              <Text style={styles.logoText}>₹</Text>
+              <Ionicons name="wallet-outline" size={40} color={Colors.textSecondary} />
             </View>
             <Text style={styles.appName}>FISCALLY</Text>
             <Text style={styles.tagline}>Your AI finance companion</Text>
@@ -97,10 +97,10 @@ export default function LoginScreen() {
               leftIcon={<Ionicons name="lock-closed-outline" size={20} color={Colors.gray400} />}
               rightIcon={
                 <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-                  <Ionicons 
-                    name={showPassword ? 'eye-off-outline' : 'eye-outline'} 
-                    size={20} 
-                    color={Colors.gray400} 
+                  <Ionicons
+                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                    size={20}
+                    color={Colors.gray400}
                   />
                 </TouchableOpacity>
               }
@@ -172,15 +172,12 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: BorderRadius.xl,
-    backgroundColor: Colors.primary,
+    backgroundColor: '#EAE0D5',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: Spacing.md,
-  },
-  logoText: {
-    fontSize: 40,
-    fontWeight: FontWeight.bold,
-    color: Colors.white,
+    borderWidth: 1,
+    borderColor: '#D6C8B5',
   },
   appName: {
     fontSize: FontSize.xxl,

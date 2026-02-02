@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
   Text,
@@ -9,28 +10,32 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { 
-  Colors, 
-  Spacing, 
-  FontSize, 
-  FontWeight, 
-  BorderRadius 
+import { LinearGradient } from 'expo-linear-gradient';
+import {
+  Colors,
+  Spacing,
+  FontSize,
+  FontWeight,
+  BorderRadius,
+  Shadows,
 } from '@/constants/theme';
 import { Button } from '@/components';
 import { INCOME_RANGES } from '@/constants';
 
 const { width } = Dimensions.get('window');
 
-type Step = 'income' | 'sms' | 'complete';
+type Step = 'welcome' | 'income' | 'sms' | 'complete';
 
 export default function OnboardingScreen() {
   const router = useRouter();
-  const [step, setStep] = useState<Step>('income');
+  const [step, setStep] = useState<Step>('welcome');
   const [selectedIncome, setSelectedIncome] = useState<string | null>(null);
   const [smsEnabled, setSmsEnabled] = useState(false);
 
   const handleNext = () => {
-    if (step === 'income') {
+    if (step === 'welcome') {
+      setStep('income');
+    } else if (step === 'income') {
       setStep('sms');
     } else if (step === 'sms') {
       setStep('complete');
@@ -38,15 +43,23 @@ export default function OnboardingScreen() {
   };
 
   const handleSkip = () => {
-    if (step === 'income') {
+    if (step === 'welcome') {
+      setStep('income');
+    } else if (step === 'income') {
       setStep('sms');
     } else if (step === 'sms') {
       setStep('complete');
     }
   };
 
-  const handleComplete = () => {
-    router.replace('/(tabs)');
+  const handleComplete = async () => {
+    try {
+      await AsyncStorage.setItem('is_onboarded', 'true');
+      router.replace('/(tabs)');
+    } catch (e) {
+      console.error('Failed to save onboarding state', e);
+      router.replace('/(tabs)');
+    }
   };
 
   const handleAddExpense = () => {
@@ -70,43 +83,112 @@ export default function OnboardingScreen() {
     );
   };
 
+  const renderWelcomeStep = () => (
+    <LinearGradient
+      colors={[Colors.background, '#EAE0D5']}
+      style={styles.welcomeContainer}
+    >
+      <View style={styles.welcomeContent}>
+        <View style={styles.logoContainer}>
+          <SimpleLogo />
+        </View>
+        <Text style={styles.welcomeTitle}>Fiscally</Text>
+
+        <View style={styles.heroContainer}>
+          <LinearGradient
+            colors={['#4A4A4A', '#2D2723']}
+            style={styles.heroCard}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            {/* Abstract lines simulation */}
+            <View style={styles.abstractLine1} />
+            <View style={styles.abstractLine2} />
+          </LinearGradient>
+        </View>
+
+        <Text style={styles.heroHeadline}>
+          Your AI-powered{'\n'}expense companion
+        </Text>
+        <Text style={styles.heroSubtext}>
+          Effortless tracking and intelligent{'\n'}insights for your daily finances.
+        </Text>
+
+        <Button
+          title="Get Started"
+          onPress={handleNext}
+          size="lg"
+          style={styles.getStartedButton}
+          textStyle={styles.getStartedText}
+        />
+
+        <View style={styles.loginRow}>
+          <Text style={styles.loginText}>Already have account? </Text>
+          <TouchableOpacity onPress={() => router.replace('/(auth)/login')}>
+            <Text style={styles.loginLink}>Sign In</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </LinearGradient>
+  );
+
   const renderIncomeStep = () => (
     <>
-      <Text style={styles.title}>What's your monthly income?</Text>
-      <Text style={styles.subtitle}>This helps us give better insights</Text>
+      <View style={styles.stepHeader}>
+        <TouchableOpacity onPress={() => setStep('welcome')} style={styles.backButton}>
+          <Ionicons name="chevron-back" size={24} color={Colors.textPrimary} />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={handleSkip}>
+          <Text style={styles.headerSkipText}>Skip</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.progressContainer}>
+        <View style={styles.progressLabels}>
+          <Text style={styles.progressStepText}>STEP 2 OF 5</Text>
+          <Text style={styles.progressStepText}>ONBOARDING</Text>
+        </View>
+        <View style={styles.progressBarBg}>
+          <View style={[styles.progressBarFill, { width: '40%' }]} />
+        </View>
+      </View>
+
+      <Text style={styles.stepTitle}>What's your monthly income?</Text>
+      <Text style={styles.stepSubtitle}>
+        This helps our AI calibrate your spending limits and personal savings goals.
+      </Text>
 
       <View style={styles.optionsContainer}>
         {INCOME_RANGES.map((range) => (
           <TouchableOpacity
             key={range.id}
             style={[
-              styles.optionButton,
-              selectedIncome === range.id && styles.optionButtonSelected,
+              styles.optionCard,
+              selectedIncome === range.id && styles.optionCardSelected,
             ]}
             onPress={() => setSelectedIncome(range.id)}
+            activeOpacity={0.7}
           >
-            <View style={styles.radioOuter}>
-              {selectedIncome === range.id && <View style={styles.radioInner} />}
+            <Text style={styles.optionCardText}>{range.label}</Text>
+            <View style={[
+              styles.radioButton,
+              selectedIncome === range.id && styles.radioButtonSelected
+            ]}>
+              {selectedIncome === range.id && <View style={styles.radioButtonInner} />}
             </View>
-            <Text
-              style={[
-                styles.optionText,
-                selectedIncome === range.id && styles.optionTextSelected,
-              ]}
-            >
-              {range.label}
-            </Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      <Button
-        title="Continue"
-        onPress={handleNext}
-        disabled={!selectedIncome}
-        size="lg"
-        style={styles.continueButton}
-      />
+      <View style={styles.footer}>
+        <Button
+          title="Continue →"
+          onPress={handleNext}
+          disabled={!selectedIncome}
+          size="lg"
+          style={styles.footerButton}
+        />
+      </View>
     </>
   );
 
@@ -198,23 +280,241 @@ export default function OnboardingScreen() {
       )}
 
       {/* Content */}
-      <View style={styles.content}>
-        {step === 'income' && renderIncomeStep()}
-        {step === 'sms' && renderSmsStep()}
-        {step === 'complete' && renderCompleteStep()}
-      </View>
+      {/* Content */}
+      {step === 'welcome' ? (
+        renderWelcomeStep()
+      ) : (
+        <View style={styles.content}>
+          {step === 'income' && renderIncomeStep()}
+          {step === 'sms' && renderSmsStep()}
+          {step === 'complete' && renderCompleteStep()}
+        </View>
+      )}
 
-      {/* Dots */}
-      {renderDots()}
+      {/* Dots - Only show for SMS and Complete */}
+      {(step === 'sms' || step === 'complete') && renderDots()}
     </SafeAreaView>
   );
 }
+
+const SimpleLogo = () => (
+  <View style={{
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    backgroundColor: '#EAE0D5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#D6C8B5'
+  }}>
+    <Ionicons name="wallet-outline" size={32} color={Colors.textSecondary} />
+  </View>
+);
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
   },
+  // Welcome Screen Styles
+  welcomeContainer: {
+    flex: 1,
+  },
+  welcomeContent: {
+    flex: 1,
+    paddingHorizontal: Spacing.xl,
+    paddingTop: 60,
+  },
+  logoContainer: {
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+  },
+  welcomeTitle: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.bold,
+    color: '#4A4A4A',
+    textAlign: 'center',
+    marginBottom: Spacing.xl,
+  },
+  heroContainer: {
+    width: '100%',
+    height: 200,
+    borderRadius: BorderRadius.xxl,
+    overflow: 'hidden',
+    marginBottom: Spacing.xl,
+    ...Shadows.lg,
+  },
+  heroCard: {
+    flex: 1,
+    position: 'relative',
+  },
+  abstractLine1: {
+    position: 'absolute',
+    top: '20%',
+    left: '-10%',
+    width: '120%',
+    height: 100,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(56, 189, 248, 0.3)',
+    transform: [{ rotate: '-15deg' }],
+  },
+  abstractLine2: {
+    position: 'absolute',
+    top: '40%',
+    left: '-10%',
+    width: '120%',
+    height: 100,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(56, 189, 248, 0.3)',
+    transform: [{ rotate: '-12deg' }],
+  },
+  heroHeadline: {
+    fontSize: 28,
+    fontWeight: FontWeight.bold,
+    color: '#2D2723',
+    textAlign: 'center',
+    marginBottom: Spacing.md,
+    lineHeight: 34,
+  },
+  heroSubtext: {
+    fontSize: FontSize.md,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: Spacing.xxl,
+    lineHeight: 22,
+  },
+  getStartedButton: {
+    backgroundColor: '#3E3630',
+    borderRadius: BorderRadius.full,
+    marginBottom: Spacing.xl,
+  },
+  getStartedText: {
+    color: '#EAE0D5',
+    fontWeight: FontWeight.bold,
+  },
+  loginRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: Spacing.sm,
+  },
+  loginText: {
+    fontSize: FontSize.md,
+    color: Colors.textSecondary,
+  },
+  loginLink: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.bold,
+    color: '#C5A059',
+  },
+
+  // Income Step Styles
+  stepHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.xl,
+    marginTop: Spacing.sm,
+  },
+  backButton: {
+    padding: Spacing.sm,
+    marginLeft: -Spacing.sm,
+  },
+  headerSkipText: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.bold,
+    color: '#2D2723',
+  },
+  progressContainer: {
+    marginBottom: Spacing.xl,
+  },
+  progressLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: Spacing.xs,
+  },
+  progressStepText: {
+    fontSize: 10,
+    fontWeight: FontWeight.bold,
+    color: Colors.gray500,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  progressBarBg: {
+    height: 4,
+    backgroundColor: '#EAE0D5',
+    borderRadius: 2,
+    marginTop: 8,
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: '#2D2723',
+    borderRadius: 2,
+  },
+  stepTitle: {
+    fontSize: 32,
+    fontWeight: FontWeight.bold,
+    color: '#0F172A',
+    marginBottom: Spacing.md,
+    lineHeight: 40,
+  },
+  stepSubtitle: {
+    fontSize: FontSize.md,
+    color: '#64748B',
+    marginBottom: Spacing.xxl,
+    lineHeight: 24,
+  },
+  optionsContainer: {
+    marginBottom: Spacing.xl,
+    gap: Spacing.md,
+  },
+  optionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: Spacing.lg,
+    backgroundColor: Colors.white,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    borderColor: Colors.black,
+    height: 64,
+  },
+  optionCardSelected: {
+    backgroundColor: '#FFFBEB', // Light yellow/cream bg
+  },
+  optionCardText: {
+    fontSize: FontSize.lg,
+    fontWeight: FontWeight.bold,
+    color: '#0F172A',
+  },
+  radioButton: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#CBD5E1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioButtonSelected: {
+    borderColor: '#0F172A',
+  },
+  radioButtonInner: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#0F172A',
+  },
+  footer: {
+    marginTop: 'auto',
+    paddingBottom: Spacing.xl,
+  },
+  footerButton: {
+    backgroundColor: '#1E293B',
+    borderRadius: BorderRadius.full,
+  },
+
+  // Existing/Shared Styles
   skipButton: {
     position: 'absolute',
     top: 60,
@@ -228,8 +528,8 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    justifyContent: 'center',
     paddingHorizontal: Spacing.xl,
+    paddingTop: 20,
   },
   iconContainer: {
     alignItems: 'center',
@@ -251,46 +551,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: Spacing.xl,
     lineHeight: 22,
-  },
-  optionsContainer: {
-    marginBottom: Spacing.xl,
-  },
-  optionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: Spacing.lg,
-    backgroundColor: Colors.gray50,
-    borderRadius: BorderRadius.lg,
-    marginBottom: Spacing.sm,
-    borderWidth: 1,
-    borderColor: Colors.gray200,
-  },
-  optionButtonSelected: {
-    backgroundColor: Colors.primary + '10',
-    borderColor: Colors.primary,
-  },
-  radioOuter: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: Colors.gray300,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: Spacing.md,
-  },
-  radioInner: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: Colors.primary,
-  },
-  optionText: {
-    fontSize: FontSize.md,
-    color: Colors.textPrimary,
-  },
-  optionTextSelected: {
-    fontWeight: FontWeight.medium,
   },
   benefitsCard: {
     backgroundColor: Colors.gray50,

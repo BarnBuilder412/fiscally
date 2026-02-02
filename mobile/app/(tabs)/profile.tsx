@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
   Text,
@@ -10,11 +11,11 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { 
-  Colors, 
-  Spacing, 
-  FontSize, 
-  FontWeight, 
+import {
+  Colors,
+  Spacing,
+  FontSize,
+  FontWeight,
   BorderRadius,
   Shadows,
 } from '@/constants/theme';
@@ -30,18 +31,18 @@ interface SettingItemProps {
   showArrow?: boolean;
 }
 
-function SettingItem({ 
-  icon, 
-  iconColor = Colors.primary, 
-  title, 
+function SettingItem({
+  icon,
+  iconColor = Colors.primary,
+  title,
   subtitle,
-  onPress, 
+  onPress,
   rightElement,
   showArrow = true,
 }: SettingItemProps) {
   return (
-    <TouchableOpacity 
-      style={styles.settingItem} 
+    <TouchableOpacity
+      style={styles.settingItem}
       onPress={onPress}
       disabled={!onPress && !rightElement}
       activeOpacity={onPress ? 0.7 : 1}
@@ -77,7 +78,7 @@ export default function ProfileScreen() {
         <View style={styles.headerSpacer} />
       </View>
 
-      <ScrollView 
+      <ScrollView
         style={styles.scrollView}
         contentContainerStyle={[
           styles.scrollContent,
@@ -115,8 +116,9 @@ export default function ProfileScreen() {
               <Switch
                 value={smsTracking}
                 onValueChange={setSmsTracking}
-                trackColor={{ false: Colors.gray200, true: Colors.primary }}
-                thumbColor={Colors.white}
+                trackColor={{ false: Colors.gray200, true: Colors.primaryLight }}
+                thumbColor={smsTracking ? Colors.primary : Colors.white}
+                ios_backgroundColor={Colors.gray200}
               />
             }
           />
@@ -130,8 +132,9 @@ export default function ProfileScreen() {
               <Switch
                 value={voiceInput}
                 onValueChange={setVoiceInput}
-                trackColor={{ false: Colors.gray200, true: Colors.primary }}
-                thumbColor={Colors.white}
+                trackColor={{ false: Colors.gray200, true: Colors.primaryLight }}
+                thumbColor={voiceInput ? Colors.primary : Colors.white}
+                ios_backgroundColor={Colors.gray200}
               />
             }
           />
@@ -149,8 +152,9 @@ export default function ProfileScreen() {
               <Switch
                 value={notifications}
                 onValueChange={setNotifications}
-                trackColor={{ false: Colors.gray200, true: Colors.primary }}
-                thumbColor={Colors.white}
+                trackColor={{ false: Colors.gray200, true: Colors.primaryLight }}
+                thumbColor={notifications ? Colors.primary : Colors.white}
+                ios_backgroundColor={Colors.gray200}
               />
             }
           />
@@ -158,19 +162,30 @@ export default function ProfileScreen() {
           <SettingItem
             icon="download"
             title="Export data"
-            onPress={() => {}}
+            onPress={() => { }}
           />
           <View style={styles.divider} />
           <SettingItem
             icon="shield-checkmark"
             iconColor="#6B7F67"
             title="Privacy & Security"
-            onPress={() => {}}
+            onPress={() => { }}
           />
         </Card>
 
         {/* Logout Button */}
-        <TouchableOpacity style={styles.logoutButton} activeOpacity={0.8}>
+        <TouchableOpacity
+          style={styles.logoutButton}
+          activeOpacity={0.8}
+          onPress={async () => {
+            try {
+              await AsyncStorage.removeItem('is_onboarded');
+              router.replace('/onboarding');
+            } catch (e) {
+              console.error('Logout failed', e);
+            }
+          }}
+        >
           <Ionicons name="log-out-outline" size={20} color="#B34B4B" />
           <Text style={styles.logoutText}>Logout</Text>
         </TouchableOpacity>
