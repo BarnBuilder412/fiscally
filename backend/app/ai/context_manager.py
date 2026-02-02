@@ -224,8 +224,9 @@ class ContextManager:
         else:
             start_date = now - timedelta(days=30)
         
+        from sqlalchemy import Numeric
         result = (
-            self.db.query(func.sum(func.cast(Transaction.amount, Decimal)))
+            self.db.query(func.sum(func.cast(Transaction.amount, Numeric)))
             .filter(
                 Transaction.user_id == user_id,
                 Transaction.category == category,
@@ -269,7 +270,7 @@ class ContextManager:
                 "category": category,
                 "added": datetime.utcnow().isoformat()
             })
-            memory["facts"] = facts[-50]  # Keep last 50 facts
+            memory["facts"] = facts[-50:]  # Keep last 50 facts
             memory["last_updated"] = datetime.utcnow().isoformat()
             user.memory = memory
             self.db.commit()

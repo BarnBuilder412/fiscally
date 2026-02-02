@@ -2,12 +2,14 @@
 Fiscally AI Agents
 ==================
 Orchestrates AI workflows for transaction processing, chat, insights, and alerts.
+Instrumented with Opik for observability.
 """
 
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 from dataclasses import dataclass
 import uuid
+import opik
 
 from .llm_client import llm_client
 from .context_manager import ContextManager, UserInsight
@@ -52,6 +54,7 @@ class TransactionAgent:
         self.context = context_manager
         self.llm = llm_client
     
+    @opik.track(name="transaction_agent_process")
     async def process(
         self, 
         user_id: str, 
@@ -64,6 +67,13 @@ class TransactionAgent:
             user_id: User identifier
             transaction: Dict with amount, merchant, timestamp, etc.
         """
+        # Log transaction input to Opik via span metadata
+        from opik import opik_context
+        opik_context.update_current_span(metadata={
+            "user_id": user_id,
+            "amount": transaction.get("amount"),
+            "merchant": transaction.get("merchant")
+        })
         # Load user context for categorization
         user_context = await self.context.load_full_context(user_id)
         
@@ -186,6 +196,7 @@ class ChatAgent:
         self.context = context_manager
         self.llm = llm_client
     
+    @opik.track(name="chat_agent_handle")
     async def handle(
         self,
         user_id: str,
@@ -294,6 +305,7 @@ class InsightAgent:
         self.context = context_manager
         self.llm = llm_client
     
+    @opik.track(name="insight_agent_weekly_digest")
     async def generate_weekly_digest(
         self, 
         user_id: str
@@ -343,6 +355,7 @@ class AlertAgent:
     def __init__(self, context_manager: ContextManager):
         self.context = context_manager
     
+    @opik.track(name="alert_agent_check")
     async def check_alerts(
         self,
         user_id: str,

@@ -452,46 +452,175 @@ uvicorn main:app --reload --port 8000
 ```
 
 ### Phase 2: Core Transaction Flow 🚧 IN PROGRESS
-**Status:** Transaction CRUD endpoints implemented. LLM integration pending (separate team).
+**Status:** Transaction CRUD + Profile endpoints implemented. ContextManager wired to DB. LLM integration pending.
 
 #### Completed (2026-01-30)
 
 ##### Transaction Schemas ✅
 - `backend/app/schemas/transaction.py`:
-  - `TransactionCreate` - Request schema with amount validation, category validation
-  - `TransactionResponse` - Single transaction response
-  - `TransactionListResponse` - Paginated list with metadata
-  - `TransactionSummary` - For stats/analytics
-  - Valid categories: `food_delivery`, `restaurant`, `groceries`, `transport`, `shopping`, `entertainment`, `bills`, `subscriptions`, `health`, `education`, `other`
+  - `TransactionCreate` - Request schema (amount, merchant, category, note, source, transaction_at)
+  - `TransactionResponse` - Single transaction response with AI metadata
+  - `TransactionListResponse` - Paginated list with total count
 
 ##### Transaction Endpoints ✅
 - `backend/app/api/v1/endpoints/transactions.py`:
-  - `POST /api/v1/transactions` - Create transaction
-    - Validates amount (positive number)
-    - Validates category (if provided)
-    - Sets `transaction_at` to now if not provided
-    - **TODO for LLM team**: Add TransactionAgent call for auto-categorization
-  - `GET /api/v1/transactions` - List with filters
-    - Pagination: `limit`, `offset`
-    - Filters: `category`, `start_date`, `end_date`, `merchant` (partial match)
-    - Ordered by `transaction_at` descending
+  - `POST /api/v1/transactions` - Create transaction (basic save, no AI yet)
+  - `GET /api/v1/transactions` - List with filters (limit, offset, category)
   - `GET /api/v1/transactions/{id}` - Get single transaction
-  - `PATCH /api/v1/transactions/{id}` - Update category/merchant/note
-  - `DELETE /api/v1/transactions/{id}` - Delete transaction
+
+##### Profile Endpoints ✅
+- `backend/app/api/v1/endpoints/profile.py`:
+  - `GET /api/v1/profile` - Returns full user context (profile, patterns, goals, memory, insights)
+  - `PATCH /api/v1/profile` - Update profile JSONB with deep merge
+
+##### ContextManager Wired to DB ✅
+- `backend/app/ai/context_manager.py` - All TODO stubs replaced with real SQLAlchemy queries:
+  - `load_profile()`, `load_patterns()`, `load_goals()`, `load_memory()`, `load_active_insights()`
+  - `update_patterns()`, `add_memory_fact()`, `add_insight()`
+  - `get_transactions()`, `get_spending_summary()`, `get_category_total()`
 
 ##### Router Updated ✅
-- `backend/app/api/v1/router.py` - Transactions router wired at `/transactions`
+- `backend/app/api/v1/router.py` - Added transactions and profile routers
+
+##### Infrastructure ✅
+- Virtual environment created (`backend/venv/`)
+- Dependencies installed
+- PostgreSQL running in Docker (`fiscally-db`)
+- Migrations applied
+
+#### Testing Results (2026-01-30)
+✅ Backend server healthy (`GET /health` = 200). PostgreSQL container (fiscally-db) running.
+
+- Auth: signup, login, refresh, and /auth/me all working.
+- Transactions: create, list (with pagination), filter by category, and get by id working.
+- Profile: GET returns full context; PATCH performs deep merge and persists.
+
+Example created data:
+- Transactions: Swiggy ₹450 (food_delivery), Uber ₹180 (transport), Amazon ₹2,500 (shopping).
+- Profile updated: identity.name=Kaushal, currency=INR, payday=1; preferences.voice_enabled=true, notification_style=actionable.
 
 #### Remaining Phase 2 Work
-- [ ] Profile endpoints (`GET/PATCH /api/v1/profile`)
 - [ ] Voice transaction parsing (`POST /api/v1/transactions/voice`) - needs Whisper integration
 - [ ] **LLM Team**: Wire `TransactionAgent` in `POST /transactions` for:
   - Auto-categorization when category is None
   - Anomaly detection (set `is_anomaly`, `anomaly_reason`)
   - Pattern updates (update user's `patterns` context)
+- [ ] Add tests for logout and negative/error cases (invalid tokens, unauthorized)
 
 #### Notes for contributors (multi-agent safe)
 - Keep endpoints thin; put orchestration in `backend/app/ai/agents.py` and DB logic in the model/service layer.
-- `ContextManager` currently has TODO stubs; Phase 2 should replace stubs with real DB queries/updates.
-- Transaction endpoints have TODO comments showing where to plug in LLM logic.
+- ContextManager is now fully wired to the database.
+- Transaction endpoints have basic CRUD; AI logic needs to be plugged in.
 - When adding new routes, also update the **API Contract** section above.
+- Backend foundation is stable and ready for AI agent integration.
+
+---
+
+## Mobile App Status (Updated 2026-02-02)
+
+### Phase: UI/UX Refactoring ✅ COMPLETED
+
+The mobile app underwent a major UI refactoring to implement a new "Stitch" cream/tan theme and redesigned navigation.
+
+#### Completed Work
+
+##### Navigation Refactor ✅
+- **Custom Tab Bar** (`mobile/app/(tabs)/_layout.tsx`):
+  - 4 main tabs: Home, Trends, Wallet, Profile
+  - Centered "+" Add button that floats half above the tab bar (56px, primary color with shadow)
+  - Floating Chat button on bottom-right corner (48px, above tab bar)
+  - Chat tab hidden from tab bar but accessible via floating button
+  - Stats and Settings tabs hidden (replaced by Trends and Profile)
+
+##### New Screens Created ✅
+- **Trends** (`mobile/app/(tabs)/trends.tsx`):
+  - Analytics/spending breakdown screen
+  - Monthly spending summary with comparison badge
+  - AI insight card (Fiscally AI tips)
+  - Category breakdown with progress bars and status badges
+  - Actionable tip card at bottom
+  
+- **Wallet** (`mobile/app/(tabs)/wallet.tsx`):
+  - Total balance overview with Send/Receive/Transfer actions
+  - Accounts list (Bank, Credit Card, Cash, Digital wallets)
+  - Recent transfers section
+  
+- **Profile** (`mobile/app/(tabs)/profile.tsx`):
+  - User profile section with avatar and Pro badge
+  - Automation settings (SMS tracking, Voice input toggles)
+  - General settings (Notifications, Export data, Privacy)
+  - Logout button with version info
+
+##### Theme Updates ✅
+- **Updated theme colors** (`mobile/constants/theme.ts`):
+  - Primary: `#8B7E66` (warm taupe)
+  - Background: `#F9F7F2` (cream)
+  - Surface: `#FFFFFF`
+  - Gray scale refined for cream theme consistency
+  - Category accent colors: warm-orange, warm-blue, warm-purple, warm-green
+
+##### NativeWind Integration ✅
+- Installed dependencies: `nativewind`, `tailwindcss@3.4.17`, `react-native-worklets`, `react-native-css-interop`
+- Configured: `tailwind.config.js`, `babel.config.js`, `metro.config.js`
+- Global CSS imported in `mobile/app/_layout.tsx`
+- Ready for Tailwind `className` usage in components
+
+##### Home Screen Updates ✅
+- Removed floating AddExpenseButton (now in custom tab bar)
+- Adjusted scroll padding for new tab bar height
+- Removed unused handlers and styles
+
+#### Mobile File Structure (Current)
+```
+mobile/app/
+├── (tabs)/
+│   ├── _layout.tsx      # Custom tab bar with centered Add button + floating Chat
+│   ├── index.tsx        # Home dashboard
+│   ├── trends.tsx       # NEW: Analytics/spending breakdown
+│   ├── wallet.tsx       # NEW: Accounts overview
+│   ├── profile.tsx      # NEW: Settings (replaces settings.tsx)
+│   ├── chat.tsx         # Hidden tab, accessible via floating button
+│   ├── stats.tsx        # Hidden (replaced by trends)
+│   └── settings.tsx     # Hidden (replaced by profile)
+├── (auth)/
+│   ├── login.tsx
+│   └── signup.tsx
+├── add-expense.tsx      # Modal for adding expenses
+├── voice-input.tsx      # Voice recording screen
+├── transactions.tsx     # Full transaction list
+└── onboarding.tsx       # Onboarding flow
+```
+
+#### Design Reference
+The UI follows the "Stitch" design system from HTML mockups in:
+- `stitch_home_dashboard/` - Home and dashboard designs
+- `stitch_home_dashboard (4)/` - Analytics/Stats design
+- `stitch_home_dashboard (5)/` - Settings/Profile design
+- `stitch_home_dashboard (6)/` - Welcome/onboarding
+- `stitch_home_dashboard (7)/` - Onboarding income selection
+- `stitch_home_dashboard (8)/` - SMS permission onboarding
+
+#### Remaining Mobile Work
+- [ ] Polish transitions and animations
+- [ ] Implement actual data fetching (connect to backend API)
+- [ ] Add loading states and error handling
+- [ ] Implement SMS parsing (Android)
+- [ ] Voice input integration with backend
+- [ ] Push notifications setup
+
+#### Commands
+```bash
+cd mobile
+pnpm install          # Install dependencies
+pnpm start -- --clear # Start Metro with cache clear
+pnpm typecheck        # Run TypeScript checks
+```
+
+#### Notes for Mobile Contributors
+- Use `Colors`, `Spacing`, `FontSize`, etc. from `@/constants/theme` for consistency
+- All screens use `SafeAreaView` with `edges={['top']}` and bottom padding for tab bar
+- Tab bar height is ~60px + safe area insets
+- Floating Chat button is positioned at `bottom: 70 + insets.bottom`
+- NativeWind is configured but most components still use StyleSheet (gradual migration)
+- The `@tailwind` lint warnings in `global.css` are false positives from IDE (NativeWind works)
+

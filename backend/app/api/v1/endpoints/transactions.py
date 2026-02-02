@@ -1,8 +1,10 @@
 """
 Transaction endpoints for expense tracking.
 
-Note: LLM-based categorization will be handled by your teammate.
-These endpoints provide the basic CRUD operations.
+Now integrated with TransactionAgent for:
+- Auto-categorization when category not provided
+- Anomaly detection
+- Pattern updates
 """
 from datetime import datetime
 from typing import Annotated, Optional
@@ -18,6 +20,8 @@ from app.schemas.transaction import (
     TransactionResponse,
     TransactionListResponse,
 )
+from app.ai.agents import TransactionAgent
+from app.ai.context_manager import ContextManager
 
 router = APIRouter()
 
@@ -29,45 +33,63 @@ async def create_transaction(
     db: Annotated[Session, Depends(get_db)],
 ):
     """
-    Create a new transaction.
+    Create a new transaction with AI processing.
     
     - Creates a transaction record for the authenticated user
-    - If category is not provided, it will be None (LLM categorization can be added later)
-    - transaction_at defaults to current time if not provided
-    
-    Future enhancement (for LLM team):
-    - Call TransactionAgent to auto-categorize if category is None
-    - Detect anomalies and set is_anomaly/anomaly_reason
-    - Update user patterns context
+    - If category is not provided, TransactionAgent auto-categorizes
+    - Detects anomalies and sets is_anomaly/anomaly_reason
+    - All processing is traced via Opik for observability
     """
-    # Create transaction with user's ID
+    # Initialize AI components
+    context_manager = ContextManager(db)
+    agent = TransactionAgent(context_manager)
+    
+    # Prepare transaction dict for agent
+    transaction_data = {
+        "amount": float(request.amount),
+        "merchant": request.merchant,
+        "category": request.category,  # May be None
+        "timestamp": (request.transaction_at or datetime.utcnow()).isoformat(),
+    }
+    
+    # Default values
+    ai_category = request.category
+    ai_confidence = None
+    is_anomaly = False
+    anomaly_reason = None
+    
+    # Run AI processing if category not provided
+    if not request.category:
+        try:
+            result = await agent.process(str(current_user.id), transaction_data)
+            ai_category = result.category
+            ai_confidence = str(result.category_confidence)
+            is_anomaly = result.is_anomaly
+            anomaly_reason = result.anomaly_reason
+        except Exception as e:
+            # Log but don't fail - graceful degradation
+            print(f"AI processing failed: {e}")
+            ai_category = "other"
+            ai_confidence = "0.0"
+    
+    # Create transaction with AI results
     transaction = Transaction(
         user_id=current_user.id,
         amount=request.amount,
         currency=request.currency,
         merchant=request.merchant,
-        category=request.category,
+        category=ai_category,
         note=request.note,
         source=request.source,
         transaction_at=request.transaction_at or datetime.utcnow(),
-        # AI fields - to be populated by LLM team
-        ai_category_confidence=None,
-        is_anomaly=False,
-        anomaly_reason=None,
+        ai_category_confidence=ai_confidence,
+        is_anomaly=is_anomaly,
+        anomaly_reason=anomaly_reason,
     )
     
     db.add(transaction)
     db.commit()
     db.refresh(transaction)
-    
-    # TODO (LLM team): Call TransactionAgent here for:
-    # 1. Auto-categorization if category is None
-    # 2. Anomaly detection
-    # 3. Pattern updates
-    # Example:
-    # from app.ai.agents import TransactionAgent
-    # agent = TransactionAgent(db, current_user)
-    # transaction = await agent.process(transaction)
     
     return transaction
 

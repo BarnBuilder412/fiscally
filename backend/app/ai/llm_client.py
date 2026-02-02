@@ -2,6 +2,7 @@
 Fiscally LLM Client
 ===================
 OpenAI wrapper with search-assisted categorization for unknown merchants.
+Instrumented with Opik for observability.
 """
 
 import os
@@ -9,6 +10,7 @@ import json
 import httpx
 from typing import Optional, Dict, Any, List
 from openai import AsyncOpenAI
+import opik
 
 from .prompts import (
     lookup_merchant,
@@ -21,6 +23,18 @@ from .prompts import (
     build_memory_extraction_prompt,
     CATEGORIES,
 )
+
+# Initialize Opik (optional - graceful degradation if not configured)
+_opik_enabled = False
+try:
+    api_key = os.getenv("OPIK_API_KEY")
+    workspace = os.getenv("OPIK_WORKSPACE")
+    if api_key and workspace:
+        opik.configure(api_key=api_key, workspace=workspace, force=False)
+        _opik_enabled = True
+        print(f"Opik observability enabled for workspace: {workspace}")
+except Exception as e:
+    print(f"Opik not configured (observability disabled): {e}")
 
 
 class LLMClient:
@@ -108,6 +122,7 @@ class LLMClient:
     # TRANSACTION CATEGORIZATION (with search fallback)
     # =========================================================================
     
+    @opik.track(name="categorize_transaction")
     async def categorize_transaction(
         self,
         transaction: Dict[str, Any],
@@ -189,6 +204,7 @@ class LLMClient:
     # ANOMALY DETECTION
     # =========================================================================
     
+    @opik.track(name="detect_anomaly")
     async def detect_anomaly(
         self,
         transaction: Dict[str, Any],
@@ -212,6 +228,7 @@ class LLMClient:
     # VOICE PARSING
     # =========================================================================
     
+    @opik.track(name="parse_voice_input")
     async def parse_voice_input(
         self,
         transcript: str,
@@ -247,6 +264,7 @@ class LLMClient:
     # CHAT
     # =========================================================================
     
+    @opik.track(name="chat")
     async def chat(
         self,
         message: str,
@@ -288,6 +306,7 @@ class LLMClient:
     # WEEKLY INSIGHTS
     # =========================================================================
     
+    @opik.track(name="generate_weekly_insights")
     async def generate_weekly_insights(
         self,
         user_context: Dict[str, Any],
@@ -315,6 +334,7 @@ class LLMClient:
     # MEMORY EXTRACTION
     # =========================================================================
     
+    @opik.track(name="extract_memory")
     async def extract_memory(self, message: str) -> Dict[str, Any]:
         """Extract facts to remember from user message."""
         prompt = build_memory_extraction_prompt(message)
