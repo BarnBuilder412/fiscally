@@ -260,6 +260,22 @@ class LLMClient:
                 "clarification_question": "Could not parse voice input. Please try again."
             }
 
+    @opik.track(name="transcribe_audio")
+    async def transcribe_audio(self, file_path: str) -> str:
+        """Transcribe audio file using Whisper."""
+        try:
+            with open(file_path, "rb") as audio_file:
+                transcript = await self.client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_file,
+                    response_format="text"
+                )
+            return transcript
+        except Exception as e:
+            print(f"Transcription failed: {e}")
+            raise e
+
+
     # =========================================================================
     # CHAT
     # =========================================================================

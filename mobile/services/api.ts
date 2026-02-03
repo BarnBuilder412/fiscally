@@ -33,7 +33,7 @@ class ApiClient {
     options: RequestInit = {}
   ): Promise<T> {
     const token = await this.getAccessToken();
-    
+
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
       ...(token && { Authorization: `Bearer ${token}` }),
@@ -109,9 +109,15 @@ class ApiClient {
     if (params?.limit) queryParams.set('limit', params.limit.toString());
     if (params?.offset) queryParams.set('offset', params.offset.toString());
     if (params?.category) queryParams.set('category', params.category);
-    
+
     const query = queryParams.toString();
-    return this.request<Transaction[]>(`/api/v1/transactions${query ? `?${query}` : ''}`);
+    const response = await this.request<{ transactions: any[] }>(`/api/v1/transactions${query ? `?${query}` : ''}`);
+
+    // Convert string amount to number and extract array
+    return response.transactions.map(t => ({
+      ...t,
+      amount: parseFloat(t.amount),
+    }));
   }
 
   async createTransaction(data: {
@@ -127,7 +133,7 @@ class ApiClient {
     });
   }
 
-  async parseVoiceTransaction(audioBase64: string): Promise<{
+  async parseVoiceTransaction(audioUri: string): Promise<{
     amount: number;
     merchant?: string;
     category: string;
@@ -135,10 +141,37 @@ class ApiClient {
     needs_clarification: boolean;
     clarification_question?: string;
   }> {
-    return this.request('/api/v1/transactions/voice', {
-      method: 'POST',
-      body: JSON.stringify({ audio_base64: audioBase64 }),
+    const formData = new FormData();
+
+    // Append file
+    // @ts-ignore - React Native FormData has specific shape
+    formData.append('file', {
+      uri: audioUri,
+      name: 'voice_input.m4a',
+      type: 'audio/m4a',
     });
+
+    const token = await this.getAccessToken();
+
+    const response = await fetch(`${this.baseUrl}/api/v1/transactions/voice`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'multipart/form-data',
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        await this.clearTokens();
+      }
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || 'Voice parsing failed');
+    }
+
+    return response.json();
   }
 
   // Chat
@@ -154,11 +187,17 @@ class ApiClient {
 
   // Insights
   async getInsights(): Promise<{
-    weekly_summary?: string;
-    patterns: Insight[];
-    alerts: Insight[];
+    headline?: string;
+    summary?: string;
+    tip?: string;
+    period_days?: number;
+    total_spent?: number;
+    transaction_count?: number;
   }> {
-    return this.request('/api/v1/insights');
+    return this.request('/api/v1/chat/insights', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
   }
 
   // Helper to check if user is authenticated

@@ -13,6 +13,7 @@ TransactionSource = Literal["manual", "voice", "sms"]
 
 # Valid categories (matches spec)
 VALID_CATEGORIES = [
+    "food",
     "food_delivery",
     "restaurant", 
     "groceries",
@@ -30,7 +31,7 @@ VALID_CATEGORIES = [
 class TransactionCreate(BaseModel):
     """Request schema for creating a transaction."""
     
-    amount: str = Field(..., description="Transaction amount as string for precision")
+    amount: Decimal = Field(..., description="Transaction amount", decimal_places=2)
     currency: str = Field(default="INR", max_length=10)
     merchant: Optional[str] = Field(None, max_length=255, description="Merchant/vendor name")
     category: Optional[str] = Field(None, max_length=100, description="Expense category")
@@ -40,15 +41,11 @@ class TransactionCreate(BaseModel):
     
     @field_validator("amount")
     @classmethod
-    def validate_amount(cls, v: str) -> str:
+    def validate_amount(cls, v: Decimal) -> Decimal:
         """Ensure amount is a valid positive number."""
-        try:
-            amount = Decimal(v.replace(",", ""))
-            if amount <= 0:
-                raise ValueError("Amount must be positive")
-            return str(amount)
-        except Exception:
-            raise ValueError("Invalid amount format")
+        if v <= 0:
+            raise ValueError("Amount must be positive")
+        return v
     
     @field_validator("category")
     @classmethod
@@ -61,7 +58,7 @@ class TransactionCreate(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "amount": "450",
+                "amount": 450.00,
                 "currency": "INR",
                 "merchant": "Swiggy",
                 "category": "food_delivery",
@@ -111,3 +108,14 @@ class TransactionSummary(BaseModel):
     category_breakdown: dict[str, str]  # category -> total amount
     period_start: datetime
     period_end: datetime
+
+
+class VoiceTransactionResponse(BaseModel):
+    """Response schema for parsed voice input."""
+    
+    amount: float
+    merchant: Optional[str] = None
+    category: str
+    confidence: float
+    needs_clarification: bool = False
+    clarification_question: Optional[str] = None

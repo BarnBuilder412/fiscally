@@ -133,7 +133,7 @@ export default function ProfileScreen() {
                 value={voiceInput}
                 onValueChange={setVoiceInput}
                 trackColor={{ false: Colors.gray200, true: Colors.primaryLight }}
-                thumbColor={voiceInput ? Colors.primary : Colors.white}
+                thumbColor={voiceInput ? Colors.error : Colors.error}
                 ios_backgroundColor={Colors.gray200}
               />
             }

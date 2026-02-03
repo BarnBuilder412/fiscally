@@ -24,6 +24,7 @@ import {
 } from '@/constants/theme';
 import { CATEGORIES, getCategoryColor } from '@/constants/categories';
 import { Button } from '@/components';
+import { api } from '@/services/api';
 import { useResponsive } from '@/hooks';
 
 export default function AddExpenseScreen() {
@@ -37,7 +38,9 @@ export default function AddExpenseScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleCategorySelect = (categoryId: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
     setSelectedCategory(categoryId);
   };
 
@@ -53,15 +56,24 @@ export default function AddExpenseScreen() {
     if (!amount || !selectedCategory) return;
 
     setIsSubmitting(true);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (Platform.OS !== 'web') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
 
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    handleSafeBack();
+    try {
+      await api.createTransaction({
+        amount: parseFloat(amount),
+        merchant: note || 'Manual Expense', // Using note as merchant/description for now
+        category: selectedCategory,
+        note: note,
+        source: 'manual',
+      });
+      handleSafeBack();
+    } catch (error: any) {
+      alert(error.message || 'Failed to save transaction');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleVoicePress = () => {

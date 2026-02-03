@@ -9,7 +9,7 @@ Now integrated with TransactionAgent for:
 from datetime import datetime
 from typing import Annotated, Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File
 from sqlalchemy import func, desc
 from sqlalchemy.orm import Session
 
@@ -19,6 +19,7 @@ from app.schemas.transaction import (
     TransactionCreate,
     TransactionResponse,
     TransactionListResponse,
+    VoiceTransactionResponse,
 )
 from app.ai.agents import TransactionAgent
 from app.ai.context_manager import ContextManager
@@ -68,7 +69,9 @@ async def create_transaction(
             anomaly_reason = result.anomaly_reason
         except Exception as e:
             # Log but don't fail - graceful degradation
+            import traceback
             print(f"AI processing failed: {e}")
+            print(f"Full traceback: {traceback.format_exc()}")
             ai_category = "other"
             ai_confidence = "0.0"
     
@@ -253,3 +256,62 @@ async def delete_transaction(
     db.commit()
     
     return None
+    db.delete(transaction)
+    db.commit()
+    
+    return None
+
+
+@router.post("/voice", response_model=VoiceTransactionResponse)
+async def parse_voice_transaction(
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+    file: Annotated[UploadFile, File(...)],
+):
+    """
+    Parse voice input to transaction data.
+    
+    1. Uploads audio file
+    2. Transcribes using Whisper
+    3. Parses intent using LLM
+    4. Returns structured data for confirmation
+    """
+    # Initialize AI components
+    context_manager = ContextManager(db)
+    from app.ai.llm_client import llm_client
+    
+    # Save uploaded file temporarily
+    import shutil
+    import tempfile
+    import os
+    
+    # Create temp file with same extension
+    suffix = os.path.splitext(file.filename)[1] if file.filename else ".tmp"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        tmp_path = tmp.name
+    
+    try:
+        # Transcribe
+        transcript = await llm_client.transcribe_audio(tmp_path)
+        
+        # Load context for better parsing
+        user_context = await context_manager.load_full_context(str(current_user.id))
+        
+        # Parse intent
+        result = await llm_client.parse_voice_input(transcript, user_context)
+        
+        return result
+        
+    except Exception as e:
+        print(f"Voice processing failed: {e}")
+        import traceback
+        print(traceback.format_exc())
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Voice processing failed: {str(e)}"
+        )
+    finally:
+        # Cleanup temp file
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)

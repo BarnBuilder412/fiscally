@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   Animated,
   Pressable,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -13,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ScrollView } from 'react-native';
+import { Audio } from 'expo-av';
 import {
   Colors,
   Spacing,
@@ -22,11 +24,12 @@ import {
 } from '@/constants/theme';
 import { getCategoryIcon } from '@/constants/categories';
 import { Button } from '@/components';
+import { api } from '@/services/api';
 
 type VoiceState = 'idle' | 'recording' | 'processing' | 'result';
 
 interface ParsedResult {
-  amount: number;
+  amount: string;
   merchant: string;
   category: string;
 }
@@ -37,6 +40,8 @@ export default function VoiceInputScreen() {
   const [transcript, setTranscript] = useState('');
   const [result, setResult] = useState<ParsedResult | null>(null);
   const [pulseAnim] = useState(new Animated.Value(1));
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [permissionResponse, requestPermission] = Audio.usePermissions();
 
   useEffect(() => {
     if (state === 'recording') {
@@ -52,49 +57,123 @@ export default function VoiceInputScreen() {
         Animated.timing(pulseAnim, {
           toValue: 1.2,
           duration: 500,
-          useNativeDriver: true,
+          useNativeDriver: (Platform.OS as string) !== 'web',
         }),
         Animated.timing(pulseAnim, {
           toValue: 1,
           duration: 500,
-          useNativeDriver: true,
+          useNativeDriver: (Platform.OS as string) !== 'web',
         }),
       ])
     ).start();
   };
 
-  const handlePressIn = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setState('recording');
-    setTranscript('');
+  const startRecording = async () => {
+    try {
+      if ((Platform.OS as string) === 'web') {
+        alert('Voice input is not supported on web yet');
+        return;
+      }
 
-    // Simulate live transcript
-    setTimeout(() => setTranscript('spent'), 500);
-    setTimeout(() => setTranscript('spent 450'), 1000);
-    setTimeout(() => setTranscript('spent 450 on swiggy'), 1500);
+      if (permissionResponse?.status !== 'granted') {
+        const resp = await requestPermission();
+        if (resp.status !== 'granted') {
+          alert('Microphone permission is required');
+          return;
+        }
+      }
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+
+      setRecording(recording);
+      setState('recording');
+      setTranscript(''); // Clear previous transcript
+
+      if ((Platform.OS as string) !== 'web') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      }
+    } catch (err) {
+      console.error('Failed to start recording', err);
+      alert('Failed to start recording');
+    }
+  };
+
+  const stopRecording = async () => {
+    if (!recording) return;
+
+    try {
+      // Haptics
+      if ((Platform.OS as string) !== 'web') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
+
+      setState('processing');
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+      setRecording(null);
+
+      if (!uri) {
+        throw new Error('No recording URI');
+      }
+
+      // Upload and process
+      console.log('Processing audio:', uri);
+      const data = await api.parseVoiceTransaction(uri);
+
+      setResult({
+        amount: data.amount.toString(),
+        merchant: data.merchant || 'Unknown',
+        category: data.category,
+      });
+      setTranscript(`Spent ${data.amount} on ${data.merchant || 'unknown'}`);
+      setState('result');
+
+      if ((Platform.OS as string) !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } catch (err) {
+      console.error('Failed to process recording', err);
+      alert('Failed to process voice input. Please try again.');
+      setState('idle');
+    }
+  };
+
+  const handlePressIn = () => {
+    startRecording();
   };
 
   const handlePressOut = () => {
-    if (state !== 'recording') return;
-
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setState('processing');
-
-    // Simulate processing
-    setTimeout(() => {
-      setResult({
-        amount: 450,
-        merchant: 'Swiggy',
-        category: 'food',
-      });
-      setState('result');
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    }, 1000);
+    if (state === 'recording') {
+      stopRecording();
+    }
   };
 
-  const handleConfirm = () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    router.replace('/(tabs)/trends');
+  const handleConfirm = async () => {
+    if (!result) return;
+
+    try {
+      if ((Platform.OS as string) !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+      await api.createTransaction({
+        amount: parseFloat(result.amount),
+        merchant: result.merchant,
+        category: result.category,
+        note: `Voice: ${transcript}`,
+        source: 'voice',
+      });
+      router.replace('/(tabs)');
+    } catch (error) {
+      console.error('Failed to create transaction:', error);
+      alert('Failed to create transaction. Please try again.');
+    }
   };
 
   const handleEdit = () => {
@@ -140,9 +219,9 @@ export default function VoiceInputScreen() {
                 />
               ))}
             </View>
-            {transcript && (
+            {transcript ? (
               <Text style={styles.transcript}>"{transcript}"</Text>
-            )}
+            ) : null}
           </>
         );
 

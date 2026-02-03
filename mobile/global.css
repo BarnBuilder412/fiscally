@@ -1,3 +1,8 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+.r-boxShadow-1ewcgjf {
+    box-shadow: rgba(0, 0, 0, 0.5) 0px 1px 3px;
+    background-color: #6B6052 !important;
+}

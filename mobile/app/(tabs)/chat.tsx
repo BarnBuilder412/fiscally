@@ -20,6 +20,7 @@ import {
   BorderRadius
 } from '@/constants/theme';
 import { ChatMessage } from '@/types';
+import { api } from '@/services/api';
 
 const SUGGESTED_QUESTIONS = [
   'How much did I spend on food?',
@@ -63,38 +64,36 @@ export default function ChatScreen() {
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }, 100);
 
-    // Simulate AI response
-    setTimeout(() => {
+    try {
+      // Call the real AI chat API
+      const response = await api.sendChatMessage(messageText);
+
       const aiResponse: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: getAIResponse(messageText),
+        content: response.response,
         timestamp: new Date().toISOString(),
       };
+
       setMessages(prev => [...prev, aiResponse]);
+    } catch (error) {
+      // Show error message if API fails
+      const errorMessage: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: "I'm having trouble connecting right now. Please try again in a moment.",
+        timestamp: new Date().toISOString(),
+      };
+      setMessages(prev => [...prev, errorMessage]);
+      console.error('Chat API error:', error);
+    } finally {
       setIsTyping(false);
       setTimeout(() => {
         scrollViewRef.current?.scrollToEnd({ animated: true });
       }, 100);
-    }, 1500);
+    }
   };
 
-  const getAIResponse = (question: string): string => {
-    const q = question.toLowerCase();
-    if (q.includes('food')) {
-      return "You've spent ₹4,850 on food this month across 12 orders. That's ₹400 per order avg, and 15% of your total spending.\n\n💡 Your late-night orders (after 10pm) average ₹520 vs ₹340 during the day.";
-    }
-    if (q.includes('biggest') || q.includes('most')) {
-      return "Your biggest expense this month is Food at ₹12,400 (38% of total). Shopping comes second at ₹8,200 (25%).\n\n📊 Food spending is down 12% from last month though!";
-    }
-    if (q.includes('goal') || q.includes('track')) {
-      return "You're at 65% of your ₹50,000 monthly budget with 8 days left. At current pace, you'll end at ₹48,500 — under budget! 🎯\n\nKeep up the good work!";
-    }
-    if (q.includes('week') || q.includes('compare')) {
-      return "This week: ₹8,200 spent\nLast week: ₹10,500 spent\n\nYou're spending 22% less this week! 🎉 The biggest drop is in food delivery (-₹1,840).";
-    }
-    return "Based on your spending patterns, you're doing well! Your average daily spend is ₹1,048. Would you like me to analyze a specific category or time period?";
-  };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>

@@ -11,14 +11,15 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, Link } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { 
-  Colors, 
-  Spacing, 
-  FontSize, 
-  FontWeight, 
-  BorderRadius 
+import {
+  Colors,
+  Spacing,
+  FontSize,
+  FontWeight,
+  BorderRadius
 } from '@/constants/theme';
 import { Button, Input } from '@/components';
+import { api } from '@/services/api';
 
 export default function SignupScreen() {
   const router = useRouter();
@@ -50,21 +51,29 @@ export default function SignupScreen() {
 
   const handleSignup = async () => {
     if (!validate()) return;
-    
+
     setLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    setLoading(false);
-    
-    router.replace('/onboarding');
+    setErrors({});
+
+    try {
+      await api.signup(email, password, name);
+      router.replace('/onboarding');
+    } catch (err: any) {
+      setErrors({
+        email: err.message || 'Failed to create account. Please try again.'
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         style={styles.keyboardView}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView 
+        <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
@@ -116,10 +125,10 @@ export default function SignupScreen() {
               leftIcon={<Ionicons name="lock-closed-outline" size={20} color={Colors.gray400} />}
               rightIcon={
                 <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-                  <Ionicons 
-                    name={showPassword ? 'eye-off-outline' : 'eye-outline'} 
-                    size={20} 
-                    color={Colors.gray400} 
+                  <Ionicons
+                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                    size={20}
+                    color={Colors.gray400}
                   />
                 </TouchableOpacity>
               }

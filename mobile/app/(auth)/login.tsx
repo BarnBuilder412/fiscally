@@ -19,6 +19,7 @@ import {
   BorderRadius
 } from '@/constants/theme';
 import { Button, Input } from '@/components';
+import { api } from '@/services/api';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -48,11 +49,18 @@ export default function LoginScreen() {
     if (!validate()) return;
 
     setLoading(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    setLoading(false);
+    setErrors({});
 
-    router.replace('/(tabs)');
+    try {
+      await api.login(email, password);
+      router.replace('/(tabs)');
+    } catch (err: any) {
+      setErrors({
+        email: err.message || 'Failed to login. Please check your credentials.'
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

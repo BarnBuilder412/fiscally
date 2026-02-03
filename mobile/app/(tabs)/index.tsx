@@ -12,83 +12,77 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { 
-  Colors, 
-  Spacing, 
-  FontSize, 
-  FontWeight, 
-  BorderRadius, 
-  Shadows 
+import {
+  Colors,
+  Spacing,
+  FontSize,
+  FontWeight,
+  BorderRadius,
+  Shadows
 } from '@/constants/theme';
-import { 
-  TransactionItem, 
-  CategoryCard, 
-  InsightCard, 
+import {
+  TransactionItem,
+  CategoryCard,
+  InsightCard,
   Card,
 } from '@/components';
+import { api } from '@/services/api';
 import { Transaction, Insight } from '@/types';
 import { useResponsive } from '@/hooks';
-
-const MOCK_TRANSACTIONS: Transaction[] = [
-  {
-    id: '1',
-    amount: 450,
-    merchant: 'Swiggy',
-    category: 'food',
-    source: 'sms',
-    created_at: new Date().toISOString(),
-    user_id: '1',
-  },
-  {
-    id: '2',
-    amount: 180,
-    merchant: 'Uber',
-    category: 'transport',
-    source: 'sms',
-    created_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-    user_id: '1',
-  },
-  {
-    id: '3',
-    amount: 350,
-    merchant: 'Starbucks',
-    category: 'food',
-    source: 'manual',
-    created_at: new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString(),
-    user_id: '1',
-  },
-];
-
-const MOCK_INSIGHT: Insight = {
-  id: '1',
-  type: 'pattern',
-  message: "You spent 23% less on food delivery this week! That's ₹1,840 saved. Keep it up! 🎉",
-  confidence: 0.92,
-  actionable: true,
-  created_at: new Date().toISOString(),
-};
-
-const MOCK_CATEGORIES = [
-  { id: 'food', amount: 12400, percentage: 75 },
-  { id: 'shopping', amount: 8200, percentage: 50 },
-  { id: 'transport', amount: 4100, percentage: 25 },
-];
 
 export default function HomeScreen() {
   const router = useRouter();
   const { rf, isSmall } = useResponsive();
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [insights, setInsights] = useState<{ patterns: Insight[]; alerts: Insight[] }>({ patterns: [], alerts: [] });
+  const [loading, setLoading] = useState(true);
 
-  const totalSpent = 32450;
-  const budget = 50000;
-  const budgetPercentage = (totalSpent / budget) * 100;
+  const loadData = async () => {
+    try {
+      const [txns, insightsData] = await Promise.all([
+        api.getTransactions({ limit: 10 }),
+        api.getInsights().catch(() => ({ patterns: [], alerts: [] })),
+      ]);
+      setTransactions(txns);
+      setInsights(insightsData);
+    } catch (error) {
+      console.error('Failed to load home data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    loadData();
+  }, []);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await loadData();
     setRefreshing(false);
   };
+
+  // Calculate stats from transactions
+  const totalSpent = transactions.reduce((sum, t) => sum + t.amount, 0);
+  const budget = 50000;
+  const budgetPercentage = (totalSpent / budget) * 100;
+
+  // Calculate top categories
+  const categoryTotals = transactions.reduce((acc, t) => {
+    acc[t.category] = (acc[t.category] || 0) + t.amount;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const topCategories = Object.entries(categoryTotals)
+    .map(([id, amount]) => ({
+      id,
+      amount,
+      percentage: (amount / totalSpent) * 100
+    }))
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 3);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -137,13 +131,13 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Month Selector */}
-        <Text style={styles.monthText}>January 2026</Text>
+        <Text style={styles.monthText}>Current Spending</Text>
 
         {/* Budget Card */}
         <Card style={styles.budgetCard} variant="elevated">
           <Text style={styles.budgetAmount}>{formatCurrency(totalSpent)}</Text>
-          <Text style={styles.budgetLabel}>spent this month</Text>
-          
+          <Text style={styles.budgetLabel}>spent recently</Text>
+
           <View style={styles.progressContainer}>
             <View style={styles.progressBar}>
               <LinearGradient
@@ -160,49 +154,66 @@ export default function HomeScreen() {
         </Card>
 
         {/* Top Categories */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Top Categories</Text>
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.categoriesContainer}
-          >
-            {MOCK_CATEGORIES.map((cat) => (
-              <CategoryCard
-                key={cat.id}
-                categoryId={cat.id}
-                amount={cat.amount}
-                percentage={cat.percentage}
-              />
-            ))}
-          </ScrollView>
-        </View>
+        {topCategories.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Top Categories</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.categoriesContainer}
+            >
+              {topCategories.map((cat) => (
+                <CategoryCard
+                  key={cat.id}
+                  categoryId={cat.id}
+                  amount={cat.amount}
+                  percentage={cat.percentage}
+                />
+              ))}
+            </ScrollView>
+          </View>
+        )}
 
         {/* AI Insight */}
-        <View style={styles.section}>
-          <InsightCard insight={MOCK_INSIGHT} />
-        </View>
+        {(insights.patterns.length > 0 || insights.alerts.length > 0) && (
+          <View style={styles.section}>
+            {insights.alerts.map(insight => (
+              <InsightCard key={insight.id} insight={insight} />
+            ))}
+            {insights.patterns.map(insight => (
+              <InsightCard key={insight.id} insight={insight} />
+            ))}
+          </View>
+        )}
 
         {/* Recent Transactions */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Recent Transactions</Text>
           <Card style={styles.transactionsCard} padding="none">
-            {MOCK_TRANSACTIONS.map((transaction, index) => (
-              <View key={transaction.id}>
-                <TransactionItem transaction={transaction} />
-                {index < MOCK_TRANSACTIONS.length - 1 && (
-                  <View style={styles.divider} />
-                )}
+            {transactions.length === 0 ? (
+              <View style={{ padding: 20, alignItems: 'center' }}>
+                <Text style={{ color: Colors.textSecondary }}>No transactions yet</Text>
               </View>
-            ))}
+            ) : (
+              transactions.map((transaction, index) => (
+                <View key={transaction.id}>
+                  <TransactionItem transaction={transaction} />
+                  {index < transactions.length - 1 && (
+                    <View style={styles.divider} />
+                  )}
+                </View>
+              ))
+            )}
           </Card>
-          <TouchableOpacity 
-            style={styles.seeAllButton}
-            onPress={() => router.push('/transactions')}
-          >
-            <Text style={styles.seeAllText}>See All Transactions</Text>
-            <Ionicons name="arrow-forward" size={16} color={Colors.primary} />
-          </TouchableOpacity>
+          {transactions.length > 0 && (
+            <TouchableOpacity
+              style={styles.seeAllButton}
+              onPress={() => router.push('/transactions')}
+            >
+              <Text style={styles.seeAllText}>See All Transactions</Text>
+              <Ionicons name="arrow-forward" size={16} color={Colors.primary} />
+            </TouchableOpacity>
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>
