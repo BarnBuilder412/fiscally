@@ -49,8 +49,24 @@ class ApiClient {
       if (response.status === 401) {
         await this.clearTokens();
       }
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || 'Request failed');
+      const errorData = await response.json().catch(() => ({}));
+
+      // Handle validation errors (array of errors) or single error
+      let errorMessage = 'Request failed';
+      if (Array.isArray(errorData.detail)) {
+        // Pydantic validation errors - extract field and message
+        errorMessage = errorData.detail.map((err: any) => {
+          const field = err.loc?.[1] || 'field';
+          const msg = err.msg?.replace('string', 'value').replace('ensure this value has at least', 'must have at least');
+          return `${field}: ${msg}`;
+        }).join(', ');
+      } else if (typeof errorData.detail === 'string') {
+        errorMessage = errorData.detail;
+      } else if (errorData.message) {
+        errorMessage = errorData.message;
+      }
+
+      throw new Error(errorMessage);
     }
 
     return response.json();
@@ -140,6 +156,7 @@ class ApiClient {
     confidence: number;
     needs_clarification: boolean;
     clarification_question?: string;
+    transcript?: string;
   }> {
     const formData = new FormData();
 

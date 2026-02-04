@@ -252,9 +252,9 @@ const styles = StyleSheet.create({
   amountInput: {
     fontSize: FontSize.hero,
     fontWeight: FontWeight.bold,
-    color: Colors.textPrimary,
+    color: Colors.textSecondary, // Match the Rupee symbol color
     minWidth: 100,
-    textAlign: 'center',
+    textAlign: 'left', // Left align for proper cursor positioning
   },
   section: {
     marginBottom: Spacing.xl,

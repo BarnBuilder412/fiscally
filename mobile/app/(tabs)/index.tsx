@@ -8,7 +8,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, Redirect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -38,17 +38,28 @@ export default function HomeScreen() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [insights, setInsights] = useState<{ patterns: Insight[]; alerts: Insight[] }>({ patterns: [], alerts: [] });
   const [loading, setLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
 
   const loadData = async () => {
     try {
+      const authenticated = await api.isAuthenticated();
+      if (!authenticated) {
+        setIsAuthenticated(false);
+        setLoading(false);
+        return;
+      }
+      setIsAuthenticated(true);
       const [txns, insightsData] = await Promise.all([
         api.getTransactions({ limit: 10 }),
         api.getInsights().catch(() => ({ patterns: [], alerts: [] })),
       ]);
       setTransactions(txns);
       setInsights(insightsData);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to load home data:', error);
+      if (error?.message?.includes('Not authenticated')) {
+        setIsAuthenticated(false);
+      }
     } finally {
       setLoading(false);
     }
@@ -92,6 +103,11 @@ export default function HomeScreen() {
       maximumFractionDigits: 0,
     }).format(amount);
   };
+
+  // Redirect to login if not authenticated
+  if (isAuthenticated === false) {
+    return <Redirect href="/(auth)/login" />;
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -175,12 +191,12 @@ export default function HomeScreen() {
         )}
 
         {/* AI Insight */}
-        {(insights.patterns.length > 0 || insights.alerts.length > 0) && (
+        {(insights?.patterns?.length > 0 || insights?.alerts?.length > 0) && (
           <View style={styles.section}>
-            {insights.alerts.map(insight => (
+            {insights.alerts?.map(insight => (
               <InsightCard key={insight.id} insight={insight} />
             ))}
-            {insights.patterns.map(insight => (
+            {insights.patterns?.map(insight => (
               <InsightCard key={insight.id} insight={insight} />
             ))}
           </View>

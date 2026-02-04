@@ -301,6 +301,9 @@ async def parse_voice_transaction(
         # Parse intent
         result = await llm_client.parse_voice_input(transcript, user_context)
         
+        # Include the transcript in the response
+        result["transcript"] = transcript
+        
         return result
         
     except Exception as e:

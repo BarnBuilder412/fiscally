@@ -1,0 +1,2 @@
+patchedDependencies:
+  react-native-css-interop@0.2.1: patches/react-native-css-interop@0.2.1.patch

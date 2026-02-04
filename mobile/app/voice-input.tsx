@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,8 @@ import {
   Animated,
   Pressable,
   Platform,
+  TextInput,
+  Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -22,17 +24,21 @@ import {
   FontWeight,
   BorderRadius,
 } from '@/constants/theme';
-import { getCategoryIcon } from '@/constants/categories';
+import { getCategoryIcon, CATEGORIES } from '@/constants/categories';
 import { Button } from '@/components';
 import { api } from '@/services/api';
 
 type VoiceState = 'idle' | 'recording' | 'processing' | 'result';
+type EditingField = 'amount' | 'merchant' | 'category' | null;
 
 interface ParsedResult {
   amount: string;
   merchant: string;
   category: string;
 }
+
+// Minimum hold duration in milliseconds to start recording
+const MIN_HOLD_DURATION = 200;
 
 export default function VoiceInputScreen() {
   const router = useRouter();
@@ -42,6 +48,17 @@ export default function VoiceInputScreen() {
   const [pulseAnim] = useState(new Animated.Value(1));
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [permissionResponse, requestPermission] = Audio.usePermissions();
+
+  // Inline editing state
+  const [editingField, setEditingField] = useState<EditingField>(null);
+  const [editValue, setEditValue] = useState('');
+  const amountInputRef = useRef<TextInput>(null);
+  const merchantInputRef = useRef<TextInput>(null);
+
+  // Track press duration to differentiate tap vs hold
+  const pressStartTime = useRef<number>(0);
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isHolding = useRef<boolean>(false);
 
   useEffect(() => {
     if (state === 'recording') {
@@ -102,6 +119,7 @@ export default function VoiceInputScreen() {
     } catch (err) {
       console.error('Failed to start recording', err);
       alert('Failed to start recording');
+      isHolding.current = false;
     }
   };
 
@@ -132,7 +150,8 @@ export default function VoiceInputScreen() {
         merchant: data.merchant || 'Unknown',
         category: data.category,
       });
-      setTranscript(`Spent ${data.amount} on ${data.merchant || 'unknown'}`);
+      // Use actual transcript from backend, fallback to a description if not available
+      setTranscript(data.transcript || `Spent ${data.amount} on ${data.merchant || 'unknown'}`);
       setState('result');
 
       if ((Platform.OS as string) !== 'web') {
@@ -146,12 +165,88 @@ export default function VoiceInputScreen() {
   };
 
   const handlePressIn = () => {
-    startRecording();
+    pressStartTime.current = Date.now();
+    isHolding.current = false;
+
+    // Start a timer to detect hold after MIN_HOLD_DURATION
+    holdTimerRef.current = setTimeout(() => {
+      isHolding.current = true;
+      startRecording();
+    }, MIN_HOLD_DURATION);
   };
 
   const handlePressOut = () => {
-    if (state === 'recording') {
+    const pressDuration = Date.now() - pressStartTime.current;
+
+    // Clear the hold timer if it hasn't fired yet
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+
+    // If it was a quick tap (not a hold), don't do anything
+    if (pressDuration < MIN_HOLD_DURATION) {
+      // It was just a tap, not a hold - ignore
+      return;
+    }
+
+    // If we're recording (from a hold), stop recording
+    if (state === 'recording' && isHolding.current) {
       stopRecording();
+    }
+
+    isHolding.current = false;
+  };
+
+  // Inline edit handlers
+  const startEditing = (field: EditingField) => {
+    if (!result || !field) return;
+
+    setEditingField(field);
+    switch (field) {
+      case 'amount':
+        setEditValue(result.amount);
+        setTimeout(() => amountInputRef.current?.focus(), 100);
+        break;
+      case 'merchant':
+        setEditValue(result.merchant);
+        setTimeout(() => merchantInputRef.current?.focus(), 100);
+        break;
+      case 'category':
+        // For category, we don't use text input, we'll show a picker
+        break;
+    }
+  };
+
+  const saveEdit = () => {
+    if (!result || !editingField) return;
+
+    switch (editingField) {
+      case 'amount':
+        setResult({ ...result, amount: editValue || '0' });
+        break;
+      case 'merchant':
+        setResult({ ...result, merchant: editValue || 'Unknown' });
+        break;
+    }
+
+    setEditingField(null);
+    setEditValue('');
+    Keyboard.dismiss();
+  };
+
+  const cancelEdit = () => {
+    setEditingField(null);
+    setEditValue('');
+    Keyboard.dismiss();
+  };
+
+  const selectCategory = (categoryId: string) => {
+    if (!result) return;
+    setResult({ ...result, category: categoryId });
+    setEditingField(null);
+    if ((Platform.OS as string) !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
   };
 
@@ -176,29 +271,31 @@ export default function VoiceInputScreen() {
     }
   };
 
-  const handleEdit = () => {
-    router.replace('/add-expense');
-  };
-
   const handleRetry = () => {
     setState('idle');
     setTranscript('');
     setResult(null);
+    setEditingField(null);
+  };
+
+  const getCategoryDisplayName = (categoryId: string) => {
+    const category = CATEGORIES.find(c => c.id === categoryId);
+    return category?.name || categoryId;
   };
 
   const renderContent = () => {
     switch (state) {
       case 'idle':
         return (
-          <>
+          <View style={styles.centeredContent}>
             <Text style={styles.instruction}>Hold the button and speak</Text>
             <Text style={styles.example}>"spent 450 on swiggy"</Text>
-          </>
+          </View>
         );
 
       case 'recording':
         return (
-          <>
+          <View style={styles.centeredContent}>
             <Animated.View
               style={[
                 styles.recordingIndicator,
@@ -222,17 +319,17 @@ export default function VoiceInputScreen() {
             {transcript ? (
               <Text style={styles.transcript}>"{transcript}"</Text>
             ) : null}
-          </>
+          </View>
         );
 
       case 'processing':
         return (
-          <>
+          <View style={styles.centeredContent}>
             <View style={styles.processingIndicator}>
               <Ionicons name="sync" size={48} color={Colors.primary} />
             </View>
             <Text style={styles.processingText}>Processing...</Text>
-          </>
+          </View>
         );
 
       case 'result':
@@ -247,7 +344,7 @@ export default function VoiceInputScreen() {
               <View style={styles.transcriptContainer}>
                 <Text style={styles.voiceCapturedLabel}>VOICE CAPTURED</Text>
                 <Text style={styles.voiceTranscript}>
-                  "{transcript || 'Spent 450 on lunch today'}"
+                  "{transcript}"
                 </Text>
               </View>
 
@@ -273,12 +370,34 @@ export default function VoiceInputScreen() {
                   </View>
                   <View style={styles.rowContent}>
                     <Text style={styles.rowLabel}>AMOUNT</Text>
-                    <Text style={styles.rowValue}>₹{result?.amount}</Text>
+                    {editingField === 'amount' ? (
+                      <View style={styles.editInputContainer}>
+                        <Text style={styles.currencySymbolInline}>₹</Text>
+                        <TextInput
+                          ref={amountInputRef}
+                          style={styles.editInput}
+                          value={editValue}
+                          onChangeText={setEditValue}
+                          keyboardType="numeric"
+                          autoFocus
+                          onBlur={saveEdit}
+                          onSubmitEditing={saveEdit}
+                          selectTextOnFocus
+                        />
+                        <TouchableOpacity onPress={saveEdit} style={styles.saveEditButton}>
+                          <Ionicons name="checkmark" size={20} color={Colors.success} />
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      <Text style={styles.rowValue}>₹{result?.amount}</Text>
+                    )}
                   </View>
                 </View>
-                <TouchableOpacity onPress={handleEdit}>
-                  <Ionicons name="pencil" size={20} color="rgba(255,255,255,0.6)" />
-                </TouchableOpacity>
+                {editingField !== 'amount' && (
+                  <TouchableOpacity onPress={() => startEditing('amount')}>
+                    <Ionicons name="pencil" size={20} color="rgba(255,255,255,0.6)" />
+                  </TouchableOpacity>
+                )}
               </View>
 
               <View style={styles.divider} />
@@ -291,12 +410,32 @@ export default function VoiceInputScreen() {
                   </View>
                   <View style={styles.rowContent}>
                     <Text style={styles.rowLabel}>MERCHANT</Text>
-                    <Text style={styles.rowValue}>{result?.merchant}</Text>
+                    {editingField === 'merchant' ? (
+                      <View style={styles.editInputContainer}>
+                        <TextInput
+                          ref={merchantInputRef}
+                          style={[styles.editInput, styles.merchantInput]}
+                          value={editValue}
+                          onChangeText={setEditValue}
+                          autoFocus
+                          onBlur={saveEdit}
+                          onSubmitEditing={saveEdit}
+                          selectTextOnFocus
+                        />
+                        <TouchableOpacity onPress={saveEdit} style={styles.saveEditButton}>
+                          <Ionicons name="checkmark" size={20} color={Colors.success} />
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      <Text style={styles.rowValue}>{result?.merchant}</Text>
+                    )}
                   </View>
                 </View>
-                <TouchableOpacity onPress={handleEdit}>
-                  <Ionicons name="pencil" size={20} color="rgba(255,255,255,0.6)" />
-                </TouchableOpacity>
+                {editingField !== 'merchant' && (
+                  <TouchableOpacity onPress={() => startEditing('merchant')}>
+                    <Ionicons name="pencil" size={20} color="rgba(255,255,255,0.6)" />
+                  </TouchableOpacity>
+                )}
               </View>
 
               <View style={styles.divider} />
@@ -314,15 +453,52 @@ export default function VoiceInputScreen() {
                   <View style={styles.rowContent}>
                     <Text style={styles.rowLabel}>CATEGORY</Text>
                     <Text style={styles.rowValue}>
-                      {result?.category === 'food' ? 'Food & Dining' : result?.category}
+                      {getCategoryDisplayName(result?.category || 'other')}
                     </Text>
                   </View>
                 </View>
-                <TouchableOpacity onPress={handleEdit}>
-                  <Ionicons name="pencil" size={20} color="rgba(255,255,255,0.6)" />
+                <TouchableOpacity onPress={() => setEditingField(editingField === 'category' ? null : 'category')}>
+                  <Ionicons
+                    name={editingField === 'category' ? "close" : "pencil"}
+                    size={20}
+                    color="rgba(255,255,255,0.6)"
+                  />
                 </TouchableOpacity>
               </View>
             </LinearGradient>
+
+            {/* Category Picker (shown when editing category) */}
+            {editingField === 'category' && (
+              <View style={styles.categoryPicker}>
+                <Text style={styles.categoryPickerTitle}>Select Category</Text>
+                <View style={styles.categoryGrid}>
+                  {CATEGORIES.map((category) => (
+                    <TouchableOpacity
+                      key={category.id}
+                      style={[
+                        styles.categoryOption,
+                        result?.category === category.id && styles.categoryOptionSelected,
+                      ]}
+                      onPress={() => selectCategory(category.id)}
+                    >
+                      <Ionicons
+                        name={category.icon}
+                        size={24}
+                        color={result?.category === category.id ? Colors.primary : Colors.gray600}
+                      />
+                      <Text
+                        style={[
+                          styles.categoryOptionText,
+                          result?.category === category.id && styles.categoryOptionTextSelected,
+                        ]}
+                      >
+                        {category.name}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
 
             {/* Actions */}
             <View style={styles.actionContainer}>
@@ -429,7 +605,14 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    paddingHorizontal: 0, // Remove padding to allow full width usage if needed
+    paddingHorizontal: 0,
+  },
+  // Centered content for idle, recording, processing states
+  centeredContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.xl,
   },
   resultScroll: {
     flex: 1,
@@ -513,6 +696,7 @@ const styles = StyleSheet.create({
   },
   rowContent: {
     justifyContent: 'center',
+    flex: 1,
   },
   rowLabel: {
     fontSize: FontSize.xs,
@@ -530,6 +714,84 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.3)',
     marginLeft: 64, // Align with text
+  },
+  // Inline editing styles
+  editInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  currencySymbolInline: {
+    fontSize: FontSize.lg,
+    fontWeight: FontWeight.bold,
+    color: '#2D2723',
+    marginRight: 2,
+  },
+  editInput: {
+    fontSize: FontSize.lg,
+    fontWeight: FontWeight.bold,
+    color: '#2D2723',
+    borderBottomWidth: 2,
+    borderBottomColor: Colors.primary,
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+    minWidth: 60,
+  },
+  merchantInput: {
+    minWidth: 120,
+  },
+  saveEditButton: {
+    marginLeft: Spacing.sm,
+    padding: 4,
+  },
+  // Category picker styles
+  categoryPicker: {
+    width: '100%',
+    backgroundColor: Colors.white,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    marginBottom: Spacing.xl,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  categoryPickerTitle: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.semibold,
+    color: Colors.textPrimary,
+    marginBottom: Spacing.md,
+    textAlign: 'center',
+  },
+  categoryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+  },
+  categoryOption: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: Colors.gray50,
+    minWidth: 80,
+    borderWidth: 1,
+    borderColor: Colors.gray200,
+  },
+  categoryOptionSelected: {
+    backgroundColor: Colors.primary + '20',
+    borderColor: Colors.primary,
+  },
+  categoryOptionText: {
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+    marginTop: Spacing.xs,
+    textAlign: 'center',
+  },
+  categoryOptionTextSelected: {
+    color: Colors.primary,
+    fontWeight: FontWeight.semibold,
   },
   actionContainer: {
     width: '100%',
@@ -620,58 +882,6 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xl,
     fontWeight: FontWeight.semibold,
     color: Colors.textSecondary,
-  },
-  successIcon: {
-    marginBottom: Spacing.md,
-  },
-  successText: {
-    fontSize: FontSize.xxl,
-    fontWeight: FontWeight.bold,
-    color: Colors.success,
-    marginBottom: Spacing.xl,
-  },
-  resultCard: {
-    backgroundColor: Colors.gray50,
-    borderRadius: BorderRadius.xl,
-    padding: Spacing.xl,
-    alignItems: 'center',
-    width: '100%',
-    marginBottom: Spacing.xl,
-  },
-  resultAmount: {
-    fontSize: FontSize.hero,
-    fontWeight: FontWeight.bold,
-    color: Colors.textPrimary,
-  },
-  resultMerchant: {
-    fontSize: FontSize.lg,
-    color: Colors.textSecondary,
-    marginTop: Spacing.xs,
-  },
-  resultCategory: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: Spacing.md,
-    backgroundColor: Colors.white,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.full,
-  },
-  resultCategoryIcon: {
-    fontSize: 16,
-    marginRight: Spacing.xs,
-  },
-  resultCategoryText: {
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-  },
-  resultActions: {
-    flexDirection: 'row',
-    gap: Spacing.md,
-    width: '100%',
-  },
-  actionButton: {
-    flex: 1,
   },
   micButtonContainer: {
     alignItems: 'center',

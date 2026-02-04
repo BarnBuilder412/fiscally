@@ -1,0 +1,35 @@
+diff --git a/dist/css-to-rn/parseDeclaration.js b/dist/css-to-rn/parseDeclaration.js
+index 59ea66e459dbf6922bcd80a6ac014408ca13c2af..0e49dcdceacccdb9b616594174d3c3ab1441da6d 100644
+--- a/dist/css-to-rn/parseDeclaration.js
++++ b/dist/css-to-rn/parseDeclaration.js
+@@ -1761,11 +1761,11 @@ function parseAspectRatio(aspectRatio) {
+         return "auto";
+     }
+     else {
+-        if (aspectRatio.ratio[0] === aspectRatio.ratio[1]) {
++        if (aspectRatio.ratio && aspectRatio.ratio[0] === aspectRatio.ratio[1]) {
+             return 1;
+         }
+         else {
+-            return aspectRatio.ratio.join(" / ");
++            return aspectRatio.ratio ? aspectRatio.ratio.join(" / ") : "auto";
+         }
+     }
+ }
+diff --git a/src/css-to-rn/parseDeclaration.ts b/src/css-to-rn/parseDeclaration.ts
+index bf095a5b430d24f791b8478f5b513d703bd1a02a..c70420c090ed120dc5e59ce1e7aa26eb72a43a32 100644
+--- a/src/css-to-rn/parseDeclaration.ts
++++ b/src/css-to-rn/parseDeclaration.ts
+@@ -2642,10 +2642,10 @@ function parseAspectRatio(
+   if (aspectRatio.auto) {
+     return "auto";
+   } else {
+-    if (aspectRatio.ratio[0] === aspectRatio.ratio[1]) {
++    if (aspectRatio.ratio && aspectRatio.ratio[0] === aspectRatio.ratio[1]) {
+       return 1;
+     } else {
+-      return aspectRatio.ratio.join(" / ");
++      return aspectRatio.ratio ? aspectRatio.ratio.join(" / ") : "auto";
+     }
+   }
+ }

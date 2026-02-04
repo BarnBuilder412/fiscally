@@ -121,13 +121,6 @@ export default function OnboardingScreen() {
           style={styles.getStartedButton}
           textStyle={styles.getStartedText}
         />
-
-        <View style={styles.loginRow}>
-          <Text style={styles.loginText}>Already have account? </Text>
-          <TouchableOpacity onPress={() => router.replace('/(auth)/login')}>
-            <Text style={styles.loginLink}>Sign In</Text>
-          </TouchableOpacity>
-        </View>
       </View>
     </LinearGradient>
   );
@@ -137,9 +130,6 @@ export default function OnboardingScreen() {
       <View style={styles.stepHeader}>
         <TouchableOpacity onPress={() => setStep('welcome')} style={styles.backButton}>
           <Ionicons name="chevron-back" size={24} color={Colors.textPrimary} />
-        </TouchableOpacity>
-        <TouchableOpacity onPress={handleSkip}>
-          <Text style={styles.headerSkipText}>Skip</Text>
         </TouchableOpacity>
       </View>
 
@@ -272,8 +262,8 @@ export default function OnboardingScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Skip Button */}
-      {step !== 'complete' && (
+      {/* Skip Button - Only for welcome and sms steps */}
+      {(step === 'welcome' || step === 'sms') && (
         <TouchableOpacity style={styles.skipButton} onPress={handleSkip}>
           <Text style={styles.skipText}>Skip</Text>
         </TouchableOpacity>

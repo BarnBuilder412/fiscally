@@ -119,3 +119,4 @@ class VoiceTransactionResponse(BaseModel):
     confidence: float
     needs_clarification: bool = False
     clarification_question: Optional[str] = None
+    transcript: Optional[str] = None  # The actual spoken text from transcription

@@ -12,7 +12,10 @@ SplashScreen.preventAutoHideAsync();
 export default function RootLayout() {
   const router = useRouter();
 
-
+  useEffect(() => {
+    // Hide splash screen after mount
+    SplashScreen.hideAsync();
+  }, []);
 
   return (
     <>
