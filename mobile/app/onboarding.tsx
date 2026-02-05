@@ -36,12 +36,14 @@ const BUDGET_RANGES = [
 ];
 
 const SAVINGS_GOALS = [
-  { id: 'emergency', label: 'Emergency Fund', icon: 'shield-checkmark' },
-  { id: 'vacation', label: 'Vacation', icon: 'airplane' },
-  { id: 'investment', label: 'Investment', icon: 'trending-up' },
-  { id: 'gadget', label: 'New Gadget', icon: 'phone-portrait' },
-  { id: 'home', label: 'Home/Rent', icon: 'home' },
-  { id: 'education', label: 'Education', icon: 'school' },
+  { id: 'emergency', label: 'Emergency Fund', icon: 'shield-checkmark', color: '#22C55E' },
+  { id: 'vacation', label: 'Vacation', icon: 'airplane', color: '#3B82F6' },
+  { id: 'investment', label: 'Investment', icon: 'trending-up', color: '#8B5CF6' },
+  { id: 'gadget', label: 'New Gadget', icon: 'phone-portrait', color: '#EC4899' },
+  { id: 'home', label: 'Home/Rent', icon: 'home', color: '#F59E0B' },
+  { id: 'education', label: 'Education', icon: 'school', color: '#06B6D4' },
+  { id: 'vehicle', label: 'Vehicle', icon: 'car', color: '#EF4444' },
+  { id: 'wedding', label: 'Wedding', icon: 'heart', color: '#F472B6' },
 ];
 
 export default function OnboardingScreen() {
@@ -330,42 +332,49 @@ export default function OnboardingScreen() {
       </Text>
 
       <View style={styles.goalsGrid}>
-        {SAVINGS_GOALS.map((goal) => (
-          <TouchableOpacity
-            key={goal.id}
-            style={[
-              styles.goalCard,
-              selectedGoals.includes(goal.id) && styles.goalCardSelected,
-            ]}
-            onPress={() => toggleGoal(goal.id)}
-            activeOpacity={0.7}
-          >
-            <View style={[
-              styles.goalIcon,
-              selectedGoals.includes(goal.id) && styles.goalIconSelected,
-            ]}>
-              <Ionicons
-                name={goal.icon as any}
-                size={24}
-                color={selectedGoals.includes(goal.id) ? Colors.primary : Colors.gray500}
-              />
-            </View>
-            <Text style={[
-              styles.goalLabel,
-              selectedGoals.includes(goal.id) && styles.goalLabelSelected,
-            ]}>
-              {goal.label}
-            </Text>
-            {selectedGoals.includes(goal.id) && (
-              <View style={styles.goalCheck}>
-                <Ionicons name="checkmark" size={12} color={Colors.white} />
+        {SAVINGS_GOALS.map((goal) => {
+          const isSelected = selectedGoals.includes(goal.id);
+          return (
+            <TouchableOpacity
+              key={goal.id}
+              style={[
+                styles.goalCard,
+                isSelected && { borderColor: goal.color, backgroundColor: goal.color + '15' },
+              ]}
+              onPress={() => toggleGoal(goal.id)}
+              activeOpacity={0.7}
+            >
+              <View style={[
+                styles.goalIcon,
+                { backgroundColor: goal.color + '20' },
+              ]}>
+                <Ionicons
+                  name={goal.icon as any}
+                  size={24}
+                  color={goal.color}
+                />
               </View>
-            )}
-          </TouchableOpacity>
-        ))}
+              <Text style={[
+                styles.goalLabel,
+                isSelected && { color: goal.color },
+              ]}>
+                {goal.label}
+              </Text>
+              {isSelected && (
+                <View style={[styles.goalCheck, { backgroundColor: goal.color }]}>
+                  <Ionicons name="checkmark" size={12} color={Colors.white} />
+                </View>
+              )}
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
-      <View style={styles.footer}>
+      <Text style={styles.goalSelectedCount}>
+        {selectedGoals.length} goal{selectedGoals.length !== 1 ? 's' : ''} selected
+      </Text>
+
+      <View style={styles.goalsFooter}>
         <Button
           title="Continue →"
           onPress={handleNext}
@@ -753,6 +762,17 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  goalSelectedCount: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: Colors.primary,
+    textAlign: 'center',
+    marginBottom: Spacing.lg,
+  },
+  goalsFooter: {
+    marginTop: Spacing.md,
+    paddingBottom: Spacing.xl,
   },
 
   // Existing/Shared Styles

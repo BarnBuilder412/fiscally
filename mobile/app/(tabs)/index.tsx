@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,45 +6,194 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
+  Dimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, Redirect } from 'expo-router';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter, Redirect, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Colors,
   Spacing,
   FontSize,
   FontWeight,
   BorderRadius,
-  Shadows
+  Shadows,
 } from '@/constants/theme';
-import {
-  TransactionItem,
-  CategoryCard,
-  Card,
-} from '@/components';
+import { Card } from '@/components';
 import { api } from '@/services/api';
 import { Transaction } from '@/types';
-import { useResponsive } from '@/hooks';
+import { eventBus, Events } from '@/services/eventBus';
+
+const { width } = Dimensions.get('window');
+
+// Goal card component
+const GoalCard = ({
+  goal,
+  current,
+  target,
+  icon,
+  color
+}: {
+  goal: string;
+  current: number;
+  target: number;
+  icon: string;
+  color: string;
+}) => {
+  const progress = Math.min((current / target) * 100, 100);
+
+  const formatAmount = (amount: number) => {
+    if (amount >= 100000) return `₹${(amount / 100000).toFixed(1)}L`;
+    if (amount >= 1000) return `₹${(amount / 1000).toFixed(0)}K`;
+    return `₹${amount}`;
+  };
+
+  return (
+    <View style={[styles.goalCard, { borderColor: color + '30' }]}>
+      <View style={[styles.goalIconContainer, { backgroundColor: color + '15' }]}>
+        <Ionicons name={icon as any} size={20} color={color} />
+      </View>
+      <Text style={styles.goalName} numberOfLines={1}>{goal}</Text>
+      <Text style={styles.goalProgress}>
+        {formatAmount(current)} / {formatAmount(target)}
+      </Text>
+      <View style={styles.goalProgressBar}>
+        <View style={[styles.goalProgressFill, { width: `${progress}%`, backgroundColor: color }]} />
+      </View>
+      <Text style={[styles.goalPercent, { color }]}>{Math.round(progress)}%</Text>
+    </View>
+  );
+};
+
+// Agentic Coach Card with contextual tips
+const AgenticCoachCard = ({
+  budgetPercentage,
+  daysRemaining,
+  transactions,
+  goalData,
+  insights,
+  onAskCoach,
+}: {
+  budgetPercentage: number;
+  daysRemaining: number;
+  transactions: Transaction[];
+  goalData: any[];
+  insights: any;
+  onAskCoach: () => void;
+}) => {
+  const [currentTip, setCurrentTip] = useState({ message: '', emoji: '💡' });
+
+  useEffect(() => {
+    const tips = [];
+
+    // Budget-based tips
+    if (budgetPercentage < 50) {
+      tips.push({ message: `Amazing! Only ${Math.round(budgetPercentage)}% of budget used with ${daysRemaining} days left. You're crushing it! 💪`, emoji: '🎉' });
+    } else if (budgetPercentage < 70) {
+      tips.push({ message: `You're on track! ${Math.round(100 - budgetPercentage)}% of budget remaining for ${daysRemaining} days.`, emoji: '✨' });
+    } else if (budgetPercentage < 90) {
+      tips.push({ message: `Heads up! You've used ${Math.round(budgetPercentage)}% of budget. Consider slowing down a bit.`, emoji: '⚠️' });
+    } else {
+      tips.push({ message: `Budget alert! Only ${Math.round(100 - budgetPercentage)}% left. Let's be careful these last ${daysRemaining} days.`, emoji: '🚨' });
+    }
+
+    // Category-based insights
+    if (transactions.length > 0) {
+      const categorySpend: Record<string, number> = {};
+      transactions.forEach(t => {
+        const cat = t.category || 'other';
+        categorySpend[cat] = (categorySpend[cat] || 0) + t.amount;
+      });
+
+      const sortedCategories = Object.entries(categorySpend).sort((a, b) => b[1] - a[1]);
+      if (sortedCategories.length > 0) {
+        const [topCat, topAmount] = sortedCategories[0];
+        const topCatLabel = topCat.charAt(0).toUpperCase() + topCat.slice(1);
+        tips.push({ message: `Your top spending category is ${topCatLabel} (₹${topAmount.toLocaleString()}). Want tips to optimize?`, emoji: '📊' });
+      }
+    }
+
+    // Goal-based tips
+    if (goalData.length > 0) {
+      const nearComplete = goalData.find(g => (g.current / g.target) >= 0.8);
+      if (nearComplete) {
+        tips.push({ message: `So close! Your "${nearComplete.label}" goal is ${Math.round((nearComplete.current / nearComplete.target) * 100)}% complete!`, emoji: '🎯' });
+      }
+    } else {
+      tips.push({ message: `Setting financial goals helps you save 40% more! Tap to set your first goal.`, emoji: '🎯' });
+    }
+
+    // Transaction pattern tips
+    if (transactions.length > 0) {
+      const todayCount = transactions.filter(t =>
+        new Date(t.created_at).toDateString() === new Date().toDateString()
+      ).length;
+
+      if (todayCount === 0) {
+        tips.push({ message: `No expenses today yet! Track everything to stay on top of your finances.`, emoji: '📝' });
+      } else if (todayCount >= 5) {
+        tips.push({ message: `${todayCount} transactions today! Consider reviewing them for accuracy.`, emoji: '👀' });
+      }
+
+      // Weekly comparison
+      const thisWeek = transactions.filter(t => {
+        const txDate = new Date(t.created_at);
+        const weekAgo = new Date();
+        weekAgo.setDate(weekAgo.getDate() - 7);
+        return txDate >= weekAgo;
+      });
+      const weekTotal = thisWeek.reduce((sum, t) => sum + t.amount, 0);
+      if (weekTotal > 0) {
+        tips.push({ message: `You've spent ₹${weekTotal.toLocaleString()} this week. That's ₹${Math.round(weekTotal / 7).toLocaleString()}/day on average.`, emoji: '📈' });
+      }
+    }
+
+    // Use API insights if available
+    if (insights?.tip) {
+      tips.push({ message: insights.tip, emoji: '🤖' });
+    }
+
+    // Pick a random tip
+    if (tips.length > 0) {
+      const randomTip = tips[Math.floor(Math.random() * tips.length)];
+      setCurrentTip(randomTip);
+    }
+  }, [budgetPercentage, daysRemaining, transactions, goalData, insights]);
+
+  return (
+    <View style={styles.aiCoachCard}>
+      <View style={styles.aiCoachGlow} />
+      <View style={styles.aiCoachHeader}>
+        <Text style={styles.aiCoachEmoji}>{currentTip.emoji}</Text>
+        <Text style={styles.aiCoachTitle}>Fiscally AI</Text>
+      </View>
+      <Text style={styles.aiCoachText}>{currentTip.message}</Text>
+      <TouchableOpacity style={styles.aiCoachButton} onPress={onAskCoach}>
+        <Text style={styles.aiCoachButtonText}>Ask Fiscally AI</Text>
+        <Ionicons name="arrow-forward" size={14} color={Colors.primary} />
+      </TouchableOpacity>
+    </View>
+  );
+};
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { rf, isSmall } = useResponsive();
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [selectedPeriod, setSelectedPeriod] = useState<'today' | 'week' | 'month'>('month');
+  const [userGoals, setUserGoals] = useState<string[]>([]);
+  const [userBudget, setUserBudget] = useState<string | null>(null);
   const [insights, setInsights] = useState<{
     headline?: string;
     summary?: string;
     tip?: string;
-    period_days?: number;
-    total_spent?: number;
-    transaction_count?: number;
   } | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [agenticMessage, setAgenticMessage] = useState<string>('');
 
   const loadData = async () => {
     try {
@@ -55,17 +204,21 @@ export default function HomeScreen() {
         return;
       }
       setIsAuthenticated(true);
-      const [txnResponse, insightsData] = await Promise.all([
-        api.getTransactions({ limit: 10 }),
+
+      // Load transactions and user preferences
+      const [txnResponse, insightsData, storedGoals, storedBudget] = await Promise.all([
+        api.getTransactions({ limit: 50 }).catch(() => ({ transactions: [] })),
         api.getInsights().catch(() => null),
+        AsyncStorage.getItem('user_goals'),
+        AsyncStorage.getItem('user_budget'),
       ]);
-      setTransactions(txnResponse.transactions);
-      // Handle insights - API may return different shape than expected
-      if (insightsData && 'patterns' in insightsData && 'alerts' in insightsData) {
-        setInsights(insightsData as { patterns: Insight[]; alerts: Insight[] });
-      }
+
+      const txns = txnResponse?.transactions || [];
+      setTransactions(Array.isArray(txns) ? txns : []);
+      setInsights(insightsData);
+      setUserGoals(storedGoals ? JSON.parse(storedGoals) : []);
+      setUserBudget(storedBudget);
     } catch (error: any) {
-      // Only log unexpected errors, not auth failures
       if (error?.message?.includes('credentials') || error?.message?.includes('Not authenticated')) {
         setIsAuthenticated(false);
       } else {
@@ -76,9 +229,35 @@ export default function HomeScreen() {
     }
   };
 
-  React.useEffect(() => {
+  useEffect(() => {
     loadData();
   }, []);
+
+  // Subscribe to events for instant updates
+  useEffect(() => {
+    const unsubTransaction = eventBus.on(Events.TRANSACTION_ADDED, () => {
+      loadData();
+    });
+    const unsubUpdated = eventBus.on(Events.TRANSACTION_UPDATED, () => {
+      loadData();
+    });
+    const unsubPrefs = eventBus.on(Events.PREFERENCES_CHANGED, () => {
+      loadData();
+    });
+
+    return () => {
+      unsubTransaction();
+      unsubUpdated();
+      unsubPrefs();
+    };
+  }, []);
+
+  // Also reload on screen focus
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [])
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -86,25 +265,54 @@ export default function HomeScreen() {
     setRefreshing(false);
   };
 
-  // Calculate stats from transactions
-  const totalSpent = transactions.reduce((sum, t) => sum + t.amount, 0);
-  const budget = 50000;
-  const budgetPercentage = (totalSpent / budget) * 100;
+  // Calculate spending based on period
+  const getSpendingForPeriod = (period: 'today' | 'week' | 'month') => {
+    const now = new Date();
+    return transactions.filter(t => {
+      const txDate = new Date(t.created_at);
+      if (period === 'today') {
+        return txDate.toDateString() === now.toDateString();
+      } else if (period === 'week') {
+        const weekAgo = new Date();
+        weekAgo.setDate(weekAgo.getDate() - 7);
+        return txDate >= weekAgo;
+      } else {
+        const monthAgo = new Date();
+        monthAgo.setMonth(monthAgo.getMonth() - 1);
+        return txDate >= monthAgo;
+      }
+    }).reduce((sum, t) => sum + t.amount, 0);
+  };
 
-  // Calculate top categories
-  const categoryTotals = transactions.reduce((acc, t) => {
-    acc[t.category] = (acc[t.category] || 0) + t.amount;
-    return acc;
-  }, {} as Record<string, number>);
+  // Calculate budget from user selection
+  const getBudgetAmount = () => {
+    switch (userBudget) {
+      case 'below_20k': return 15000;
+      case '20k_40k': return 30000;
+      case '40k_70k': return 55000;
+      case '70k_100k': return 85000;
+      case 'above_100k': return 120000;
+      default: return 50000;
+    }
+  };
 
-  const topCategories = Object.entries(categoryTotals)
-    .map(([id, amount]) => ({
-      id,
-      amount,
-      percentage: (amount / totalSpent) * 100
-    }))
-    .sort((a, b) => b.amount - a.amount)
-    .slice(0, 3);
+  const budget = getBudgetAmount();
+  const monthlySpent = getSpendingForPeriod('month');
+  const budgetPercentage = (monthlySpent / budget) * 100;
+  const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+  const currentDay = new Date().getDate();
+  const daysRemaining = daysInMonth - currentDay;
+  const remainingBudget = Math.max(budget - monthlySpent, 0);
+
+  // Goal data based on user selections
+  const goalData = [
+    { id: 'emergency', label: 'Emergency Fund', icon: 'shield-checkmark', color: '#22C55E', current: 45000, target: 100000 },
+    { id: 'vacation', label: 'Vacation', icon: 'airplane', color: '#3B82F6', current: 12000, target: 30000 },
+    { id: 'investment', label: 'Investment', icon: 'trending-up', color: '#8B5CF6', current: 25000, target: 50000 },
+    { id: 'gadget', label: 'New Gadget', icon: 'phone-portrait', color: '#EC4899', current: 8000, target: 20000 },
+    { id: 'home', label: 'Home/Rent', icon: 'home', color: '#F59E0B', current: 60000, target: 100000 },
+    { id: 'education', label: 'Education', icon: 'school', color: '#06B6D4', current: 15000, target: 40000 },
+  ].filter(g => userGoals.includes(g.id));
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -115,7 +323,6 @@ export default function HomeScreen() {
     }).format(amount);
   };
 
-  // Redirect to login if not authenticated
   if (isAuthenticated === false) {
     return <Redirect href="/(auth)/login" />;
   }
@@ -138,99 +345,129 @@ export default function HomeScreen() {
         }
         showsVerticalScrollIndicator={false}
       >
-        {/* Month Selector */}
-        <Text style={styles.monthText}>Current Spending</Text>
-
         {/* Budget Card */}
         <Card style={styles.budgetCard} variant="elevated">
-          <Text style={styles.budgetAmount}>{formatCurrency(totalSpent)}</Text>
-          <Text style={styles.budgetLabel}>spent recently</Text>
+          <View style={styles.budgetHeader}>
+            <View style={styles.budgetIconContainer}>
+              <Ionicons name="wallet" size={20} color={Colors.primary} />
+            </View>
+            <Text style={styles.budgetTitle}>Monthly Budget</Text>
+          </View>
+
+          <View style={styles.budgetAmounts}>
+            <Text style={styles.budgetSpent}>{formatCurrency(monthlySpent)}</Text>
+            <Text style={styles.budgetOf}> / {formatCurrency(budget)}</Text>
+          </View>
 
           <View style={styles.progressContainer}>
             <View style={styles.progressBar}>
               <LinearGradient
-                colors={[Colors.primary, Colors.primaryLight]}
+                colors={budgetPercentage > 80 ? ['#EF4444', '#F59E0B'] : [Colors.primary, Colors.primaryLight]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={[styles.progressFill, { width: `${Math.min(budgetPercentage, 100)}%` }]}
               />
             </View>
-            <Text style={styles.progressText}>
-              {Math.round(budgetPercentage)}% of {formatCurrency(budget)} budget
-            </Text>
+          </View>
+
+          <View style={styles.budgetStats}>
+            <View style={styles.budgetStat}>
+              <Ionicons name="wallet-outline" size={14} color={Colors.success} />
+              <Text style={styles.budgetStatText}>{formatCurrency(remainingBudget)} left</Text>
+            </View>
+            <View style={styles.budgetStatDivider} />
+            <View style={styles.budgetStat}>
+              <Ionicons name="calendar-outline" size={14} color={Colors.primary} />
+              <Text style={styles.budgetStatText}>{daysRemaining} days remaining</Text>
+            </View>
           </View>
         </Card>
 
-        {/* Top Categories */}
-        {topCategories.length > 0 && (
+        {/* Active Goals */}
+        {goalData.length > 0 && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Top Categories</Text>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>🎯 Active Goals</Text>
+              <TouchableOpacity onPress={() => router.push('/preferences/goals')}>
+                <Text style={styles.sectionLink}>Manage</Text>
+              </TouchableOpacity>
+            </View>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.categoriesContainer}
+              contentContainerStyle={styles.goalsContainer}
             >
-              {topCategories.map((cat) => (
-                <CategoryCard
-                  key={cat.id}
-                  categoryId={cat.id}
-                  amount={cat.amount}
-                  percentage={cat.percentage}
+              {goalData.map((goal) => (
+                <GoalCard
+                  key={goal.id}
+                  goal={goal.label}
+                  current={goal.current}
+                  target={goal.target}
+                  icon={goal.icon}
+                  color={goal.color}
                 />
               ))}
             </ScrollView>
           </View>
         )}
 
-        {/* AI Insight */}
-        {insights && (insights.headline || insights.tip) && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>AI Insights</Text>
-            <Card style={styles.insightCard}>
-              {insights.headline && (
-                <Text style={styles.insightHeadline}>{insights.headline}</Text>
-              )}
-              {insights.summary && (
-                <Text style={styles.insightSummary}>{insights.summary}</Text>
-              )}
-              {insights.tip && (
-                <View style={styles.tipContainer}>
-                  <Ionicons name="bulb" size={16} color={Colors.primary} />
-                  <Text style={styles.tipText}>{insights.tip}</Text>
-                </View>
-              )}
-            </Card>
-          </View>
+        {/* No Goals CTA */}
+        {goalData.length === 0 && (
+          <TouchableOpacity
+            style={styles.noGoalsCard}
+            onPress={() => router.push('/onboarding')}
+          >
+            <View style={styles.noGoalsIcon}>
+              <Ionicons name="flag" size={24} color={Colors.primary} />
+            </View>
+            <View style={styles.noGoalsContent}>
+              <Text style={styles.noGoalsTitle}>Set Your Goals</Text>
+              <Text style={styles.noGoalsSubtitle}>Start saving towards what matters most</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={Colors.gray400} />
+          </TouchableOpacity>
         )}
 
-        {/* Recent Transactions */}
+        {/* Fiscally AI Card */}
+        <AgenticCoachCard
+          budgetPercentage={budgetPercentage}
+          daysRemaining={daysRemaining}
+          transactions={transactions}
+          goalData={goalData}
+          insights={insights}
+          onAskCoach={() => router.push('/(tabs)/chat')}
+        />
+
+        {/* Quick Stats */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Recent Transactions</Text>
-          <Card style={styles.transactionsCard} padding="none">
-            {transactions.length === 0 ? (
-              <View style={{ padding: 20, alignItems: 'center' }}>
-                <Text style={{ color: Colors.textSecondary }}>No transactions yet</Text>
-              </View>
-            ) : (
-              transactions.map((transaction, index) => (
-                <View key={transaction.id}>
-                  <TransactionItem transaction={transaction} />
-                  {index < transactions.length - 1 && (
-                    <View style={styles.divider} />
-                  )}
-                </View>
-              ))
-            )}
-          </Card>
-          {transactions.length > 0 && (
-            <TouchableOpacity
-              style={styles.seeAllButton}
-              onPress={() => router.push('/transactions')}
-            >
-              <Text style={styles.seeAllText}>See All Transactions</Text>
-              <Ionicons name="arrow-forward" size={16} color={Colors.primary} />
-            </TouchableOpacity>
-          )}
+          <Text style={styles.sectionTitle}>📊 Quick Stats</Text>
+          <View style={styles.periodTabs}>
+            {(['today', 'week', 'month'] as const).map((period) => (
+              <TouchableOpacity
+                key={period}
+                style={[
+                  styles.periodTab,
+                  selectedPeriod === period && styles.periodTabActive,
+                ]}
+                onPress={() => setSelectedPeriod(period)}
+              >
+                <Text style={[
+                  styles.periodTabText,
+                  selectedPeriod === period && styles.periodTabTextActive,
+                ]}>
+                  {period.charAt(0).toUpperCase() + period.slice(1)}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <TouchableOpacity onPress={() => router.push({ pathname: '/(tabs)/activity', params: { period: selectedPeriod } })}>
+            <Card style={styles.statsCard}>
+              <Text style={styles.statsAmount}>{formatCurrency(getSpendingForPeriod(selectedPeriod))}</Text>
+              <Text style={styles.statsLabel}>
+                spent this {selectedPeriod === 'today' ? 'day' : selectedPeriod}
+              </Text>
+            </Card>
+          </TouchableOpacity>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -256,115 +493,305 @@ const styles = StyleSheet.create({
     fontSize: FontSize.lg,
     fontWeight: FontWeight.bold,
     color: Colors.primary,
-    letterSpacing: 1,
+    letterSpacing: 2,
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
     paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
   },
-  monthText: {
-    fontSize: FontSize.lg,
-    fontWeight: FontWeight.semibold,
-    color: Colors.textPrimary,
-    textAlign: 'center',
-    marginVertical: Spacing.lg,
-  },
-  budgetCard: {
+  // Health Score Section
+  healthSection: {
     alignItems: 'center',
     paddingVertical: Spacing.xl,
   },
-  budgetAmount: {
-    fontSize: FontSize.hero,
+  healthTitle: {
+    fontSize: FontSize.lg,
+    fontWeight: FontWeight.bold,
+    color: Colors.textPrimary,
+    marginBottom: Spacing.lg,
+  },
+  scoreValue: {
+    fontSize: 44,
+    fontWeight: FontWeight.bold,
+  },
+  scoreMax: {
+    fontSize: FontSize.md,
+    color: Colors.gray400,
+    marginTop: -4,
+  },
+  scoreLabel: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.semibold,
+    marginTop: Spacing.sm,
+  },
+  // Budget Card
+  budgetCard: {
+    padding: Spacing.lg,
+  },
+  budgetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  budgetIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.primary + '15',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  budgetTitle: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.semibold,
+    color: Colors.textSecondary,
+  },
+  budgetAmounts: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+  },
+  budgetSpent: {
+    fontSize: FontSize.display,
     fontWeight: FontWeight.bold,
     color: Colors.textPrimary,
   },
-  budgetLabel: {
-    fontSize: FontSize.md,
-    color: Colors.textSecondary,
-    marginTop: Spacing.xs,
+  budgetOf: {
+    fontSize: FontSize.lg,
+    color: Colors.gray400,
   },
   progressContainer: {
-    width: '100%',
-    marginTop: Spacing.lg,
+    marginTop: Spacing.md,
   },
   progressBar: {
-    height: 8,
+    height: 10,
     backgroundColor: Colors.gray200,
-    borderRadius: 4,
+    borderRadius: 5,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    borderRadius: 4,
+    borderRadius: 5,
   },
-  progressText: {
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    marginTop: Spacing.sm,
-    textAlign: 'center',
-  },
-  section: {
-    marginTop: Spacing.xl,
-  },
-  sectionTitle: {
-    fontSize: FontSize.lg,
-    fontWeight: FontWeight.semibold,
-    color: Colors.textPrimary,
-    marginBottom: Spacing.md,
-  },
-  categoriesContainer: {
-    gap: Spacing.md,
-  },
-  transactionsCard: {
-    overflow: 'hidden',
-  },
-  divider: {
-    height: 1,
-    backgroundColor: Colors.primary + '0D',
-    marginLeft: 72,
-  },
-  seeAllButton: {
+  budgetStats: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: Spacing.md,
-    marginTop: Spacing.sm,
+    marginTop: Spacing.md,
+    gap: Spacing.md,
   },
-  seeAllText: {
-    fontSize: FontSize.md,
-    fontWeight: FontWeight.medium,
-    color: Colors.primary,
-    marginRight: Spacing.xs,
+  budgetStat: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
   },
-  insightCard: {
-    padding: Spacing.lg,
+  budgetStatText: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
   },
-  insightHeadline: {
+  budgetStatDivider: {
+    width: 1,
+    height: 16,
+    backgroundColor: Colors.gray300,
+  },
+  // Sections
+  section: {
+    marginTop: Spacing.xl,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+  },
+  sectionTitle: {
     fontSize: FontSize.lg,
     fontWeight: FontWeight.bold,
     color: Colors.textPrimary,
+  },
+  sectionLink: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: Colors.primary,
+  },
+  // Goals
+  goalsContainer: {
+    gap: Spacing.md,
+    paddingRight: Spacing.lg,
+  },
+  goalCard: {
+    width: 140,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
+    borderWidth: 1,
+    ...Shadows.sm,
+  },
+  goalIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: Spacing.sm,
   },
-  insightSummary: {
+  goalName: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: Colors.textPrimary,
+    marginBottom: 2,
+  },
+  goalProgress: {
+    fontSize: FontSize.xs,
+    color: Colors.gray500,
+    marginBottom: Spacing.sm,
+  },
+  goalProgressBar: {
+    height: 4,
+    backgroundColor: Colors.gray200,
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  goalProgressFill: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  goalPercent: {
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.bold,
+    marginTop: Spacing.xs,
+    textAlign: 'right',
+  },
+  // No Goals CTA
+  noGoalsCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    marginTop: Spacing.lg,
+    borderWidth: 1,
+    borderColor: Colors.primary + '20',
+    borderStyle: 'dashed',
+  },
+  noGoalsIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: Colors.primary + '15',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noGoalsContent: {
+    flex: 1,
+    marginLeft: Spacing.md,
+  },
+  noGoalsTitle: {
     fontSize: FontSize.md,
-    color: Colors.textSecondary,
-    lineHeight: 22,
+    fontWeight: FontWeight.bold,
+    color: Colors.textPrimary,
+  },
+  noGoalsSubtitle: {
+    fontSize: FontSize.sm,
+    color: Colors.gray500,
+    marginTop: 2,
+  },
+  // Fiscally AI Card
+  aiCoachCard: {
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    marginTop: Spacing.xl,
+    overflow: 'hidden',
+  },
+  aiCoachGlow: {
+    position: 'absolute',
+    right: -40,
+    top: -40,
+    width: 140,
+    height: 140,
+    backgroundColor: Colors.white,
+    opacity: 0.1,
+    borderRadius: 70,
+  },
+  aiCoachHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  aiCoachTitle: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.bold,
+    color: Colors.white,
+  },
+  aiCoachEmoji: {
+    fontSize: 20,
+  },
+  aiCoachText: {
+    fontSize: FontSize.sm,
+    color: Colors.white,
+    opacity: 0.9,
+    lineHeight: 20,
     marginBottom: Spacing.md,
   },
-  tipContainer: {
+  aiCoachButton: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: Colors.primary + '10',
-    padding: Spacing.md,
-    borderRadius: BorderRadius.md,
-    gap: Spacing.sm,
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: Colors.white,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    gap: Spacing.xs,
   },
-  tipText: {
-    flex: 1,
+  aiCoachButtonText: {
     fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
     color: Colors.primary,
+  },
+  // Quick Stats
+  periodTabs: {
+    flexDirection: 'row',
+    backgroundColor: Colors.gray100,
+    borderRadius: BorderRadius.lg,
+    padding: 4,
+    marginBottom: Spacing.md,
+  },
+  periodTab: {
+    flex: 1,
+    paddingVertical: Spacing.sm,
+    alignItems: 'center',
+    borderRadius: BorderRadius.md,
+  },
+  periodTabActive: {
+    backgroundColor: Colors.surface,
+    ...Shadows.sm,
+  },
+  periodTabText: {
+    fontSize: FontSize.sm,
     fontWeight: FontWeight.medium,
+    color: Colors.gray500,
+  },
+  periodTabTextActive: {
+    color: Colors.textPrimary,
+    fontWeight: FontWeight.semibold,
+  },
+  statsCard: {
+    alignItems: 'center',
+    padding: Spacing.xl,
+  },
+  statsAmount: {
+    fontSize: FontSize.display,
+    fontWeight: FontWeight.bold,
+    color: Colors.textPrimary,
+  },
+  statsLabel: {
+    fontSize: FontSize.md,
+    color: Colors.textSecondary,
+    marginTop: Spacing.xs,
   },
 });

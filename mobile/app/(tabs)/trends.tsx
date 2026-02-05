@@ -1,132 +1,361 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { 
-  Colors, 
-  Spacing, 
-  FontSize, 
-  FontWeight, 
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  Colors,
+  Spacing,
+  FontSize,
+  FontWeight,
   BorderRadius,
   Shadows,
 } from '@/constants/theme';
 import { Card } from '@/components';
+import { api } from '@/services/api';
+import { Transaction } from '@/types';
+import { eventBus, Events } from '@/services/eventBus';
+import { CATEGORIES, getCategoryColor } from '@/constants/categories';
 
-const CATEGORY_DATA = [
-  { 
-    id: 'food', 
-    name: 'Food & Drink', 
-    amount: 600, 
-    budget: 1000, 
-    icon: 'restaurant',
-    color: '#E6A37C',
-    status: 'On Track',
-  },
-  { 
-    id: 'transport', 
-    name: 'Transport', 
-    amount: 200, 
-    budget: 1000, 
-    icon: 'car',
-    color: '#8DA3B5',
-    status: 'Low Spend',
-  },
-  { 
-    id: 'shopping', 
-    name: 'Shopping', 
-    amount: 850, 
-    budget: 1000, 
-    icon: 'bag-handle',
-    color: '#A68EA5',
-    status: 'Near Limit',
-  },
-  { 
-    id: 'entertainment', 
-    name: 'Entertainment', 
-    amount: 400, 
-    budget: 800, 
-    icon: 'game-controller',
-    color: '#99A88C',
-    status: 'On Track',
-  },
-];
+// Category icons mapping
+const CATEGORY_ICONS: Record<string, string> = {
+  food: 'restaurant',
+  transport: 'car',
+  shopping: 'bag-handle',
+  entertainment: 'game-controller',
+  utilities: 'flash',
+  health: 'medical',
+  education: 'school',
+  groceries: 'cart',
+  travel: 'airplane',
+  subscriptions: 'card',
+  other: 'ellipsis-horizontal',
+};
 
 export default function TrendsScreen() {
   const insets = useSafeAreaInsets();
-  const totalSpent = 2450;
-  const comparison = -5;
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [userBudget, setUserBudget] = useState<string | null>(null);
+
+  const loadData = async () => {
+    try {
+      const [txnResponse, storedBudget] = await Promise.all([
+        api.getTransactions({ limit: 100 }).catch(() => ({ transactions: [] })),
+        AsyncStorage.getItem('user_budget'),
+      ]);
+
+      const txns = txnResponse?.transactions || [];
+      setTransactions(Array.isArray(txns) ? txns : []);
+      setUserBudget(storedBudget);
+    } catch (error) {
+      console.error('Failed to load trends data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  // Subscribe to events for instant updates
+  useEffect(() => {
+    const unsubAdded = eventBus.on(Events.TRANSACTION_ADDED, loadData);
+    const unsubUpdated = eventBus.on(Events.TRANSACTION_UPDATED, loadData);
+    const unsubPrefs = eventBus.on(Events.PREFERENCES_CHANGED, loadData);
+
+    return () => {
+      unsubAdded();
+      unsubUpdated();
+      unsubPrefs();
+    };
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [])
+  );
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadData();
+    setRefreshing(false);
+  };
+
+  // Get monthly budget amount
+  const getBudgetAmount = () => {
+    switch (userBudget) {
+      case 'below_20k': return 15000;
+      case '20k_40k': return 30000;
+      case '40k_70k': return 55000;
+      case '70k_100k': return 85000;
+      case 'above_100k': return 120000;
+      default: return 50000;
+    }
+  };
+
+  // Filter transactions for current month
+  const getMonthlyTransactions = () => {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    return transactions.filter(t => new Date(t.created_at) >= monthStart);
+  };
+
+  // Filter transactions for last month (for comparison)
+  const getLastMonthTransactions = () => {
+    const now = new Date();
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+    return transactions.filter(t => {
+      const date = new Date(t.created_at);
+      return date >= lastMonthStart && date <= lastMonthEnd;
+    });
+  };
+
+  const monthlyTxns = getMonthlyTransactions();
+  const lastMonthTxns = getLastMonthTransactions();
+
+  // Calculate total spent this month
+  const totalSpent = monthlyTxns.reduce((sum, t) => sum + t.amount, 0);
+  const lastMonthTotal = lastMonthTxns.reduce((sum, t) => sum + t.amount, 0);
+  const comparison = lastMonthTotal > 0
+    ? Math.round(((totalSpent - lastMonthTotal) / lastMonthTotal) * 100)
+    : 0;
+
+  // Group by category
+  const getCategoryBreakdown = () => {
+    const breakdown: Record<string, { amount: number; count: number }> = {};
+
+    monthlyTxns.forEach(t => {
+      const cat = t.category || 'other';
+      if (!breakdown[cat]) {
+        breakdown[cat] = { amount: 0, count: 0 };
+      }
+      breakdown[cat].amount += t.amount;
+      breakdown[cat].count += 1;
+    });
+
+    // Convert to array and sort by amount
+    const budget = getBudgetAmount();
+    const categoryBudget = budget * 0.25; // Assume 25% of total budget per category
+
+    return Object.entries(breakdown)
+      .map(([id, data]) => {
+        const progress = (data.amount / categoryBudget) * 100;
+        let status = 'On Track';
+        if (progress >= 90) status = 'Over Budget';
+        else if (progress >= 75) status = 'Near Limit';
+        else if (progress <= 30) status = 'Low Spend';
+
+        return {
+          id,
+          name: CATEGORIES.find(c => c.id === id)?.name || id.charAt(0).toUpperCase() + id.slice(1),
+          amount: data.amount,
+          count: data.count,
+          budget: categoryBudget,
+          icon: CATEGORY_ICONS[id] || 'ellipsis-horizontal',
+          color: getCategoryColor(id),
+          status,
+          progress,
+        };
+      })
+      .sort((a, b) => b.amount - a.amount);
+  };
+
+  const categoryBreakdown = getCategoryBreakdown();
+
+  // Generate personalized AI insight
+  const getAIInsight = () => {
+    if (categoryBreakdown.length === 0) {
+      return {
+        emoji: '📊',
+        text: 'Start tracking your expenses to get personalized insights!',
+      };
+    }
+
+    const topCategory = categoryBreakdown[0];
+    const budget = getBudgetAmount();
+    const percentSpent = (totalSpent / budget) * 100;
+    const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+    const currentDay = new Date().getDate();
+    const expectedPercentage = (currentDay / daysInMonth) * 100;
+
+    // Various insight types based on spending patterns
+    if (percentSpent > expectedPercentage * 1.2) {
+      return {
+        emoji: '⚠️',
+        text: `You're spending faster than usual. At this rate, you'll exceed your budget by ${Math.round(percentSpent - 100)}% by month end.`,
+        highlight: `${Math.round(percentSpent)}% spent`,
+      };
+    }
+
+    if (comparison < -10) {
+      return {
+        emoji: '🎉',
+        text: `Great progress! You're spending ${Math.abs(comparison)}% less than last month. Keep up the good habits!`,
+        highlight: `${Math.abs(comparison)}% saved`,
+      };
+    }
+
+    if (topCategory.status === 'Near Limit' || topCategory.status === 'Over Budget') {
+      return {
+        emoji: '💡',
+        text: `Your ${topCategory.name.toLowerCase()} spending (₹${topCategory.amount.toLocaleString()}) is approaching your limit. Consider cutting back this week.`,
+        highlight: topCategory.name,
+      };
+    }
+
+    return {
+      emoji: '✨',
+      text: `You've made ${monthlyTxns.length} transactions this month totaling ₹${totalSpent.toLocaleString()}. Your top category is ${topCategory.name.toLowerCase()}.`,
+      highlight: topCategory.name,
+    };
+  };
+
+  const aiInsight = getAIInsight();
+
+  // Get actionable tip
+  const getActionableTip = () => {
+    const overBudgetCategories = categoryBreakdown.filter(c => c.status === 'Over Budget' || c.status === 'Near Limit');
+
+    if (overBudgetCategories.length > 0) {
+      const cat = overBudgetCategories[0];
+      return {
+        emoji: '🎯',
+        title: 'Budget Alert',
+        text: `Your ${cat.name.toLowerCase()} spending is ${Math.round(cat.progress)}% of budget. Try to limit spending in this category for the rest of the month.`,
+        highlight: cat.name,
+      };
+    }
+
+    const budget = getBudgetAmount();
+    const remaining = budget - totalSpent;
+    const daysRemaining = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate() - new Date().getDate();
+
+    if (remaining > 0 && daysRemaining > 0) {
+      const dailyBudget = Math.round(remaining / daysRemaining);
+      return {
+        emoji: '💰',
+        title: 'Daily Budget',
+        text: `You have ₹${remaining.toLocaleString()} left for ${daysRemaining} days. That's ₹${dailyBudget.toLocaleString()} per day.`,
+        highlight: `₹${dailyBudget.toLocaleString()}/day`,
+      };
+    }
+
+    return {
+      emoji: '📈',
+      title: 'Track More',
+      text: 'Log your expenses regularly for better insights and personalized recommendations.',
+      highlight: 'better insights',
+    };
+  };
+
+  const actionableTip = getActionableTip();
 
   const getStatusStyle = (status: string) => {
     switch (status) {
+      case 'Over Budget':
+        return { bg: '#EF444420', text: '#EF4444' };
       case 'Near Limit':
-        return { bg: '#E6A37C20', text: '#E6A37C' };
+        return { bg: '#F59E0B20', text: '#F59E0B' };
       case 'Low Spend':
-        return { bg: Colors.gray100, text: Colors.gray500 };
+        return { bg: '#22C55E20', text: '#22C55E' };
       default:
         return { bg: Colors.gray100, text: Colors.gray500 };
     }
   };
 
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount);
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Trends</Text>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <View style={styles.avatarSmall}>
-            <Text style={styles.avatarText}>K</Text>
-          </View>
-          <Text style={styles.headerTitle}>Analytics</Text>
-        </View>
-        <TouchableOpacity style={styles.notificationButton}>
-          <Ionicons name="notifications-outline" size={22} color={Colors.textPrimary} />
-        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Trends</Text>
       </View>
 
-      <ScrollView 
+      <ScrollView
         style={styles.scrollView}
         contentContainerStyle={[
           styles.scrollContent,
           { paddingBottom: 100 + insets.bottom }
         ]}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
       >
         {/* Summary Card */}
         <Card style={styles.summaryCard}>
           <View style={styles.summaryHeader}>
             <View>
               <Text style={styles.summaryLabel}>SPENT THIS MONTH</Text>
-              <Text style={styles.summaryAmount}>₹{totalSpent.toLocaleString()}</Text>
+              <Text style={styles.summaryAmount}>{formatCurrency(totalSpent)}</Text>
             </View>
-            <View style={[styles.comparisonBadge, comparison < 0 && styles.comparisonPositive]}>
-              <Ionicons 
-                name={comparison < 0 ? 'trending-down' : 'trending-up'} 
-                size={14} 
-                color={comparison < 0 ? '#99A88C' : '#E6A37C'} 
-              />
-              <Text style={[styles.comparisonText, comparison < 0 && styles.comparisonTextPositive]}>
-                {Math.abs(comparison)}%
-              </Text>
-            </View>
+            {comparison !== 0 && (
+              <View style={[styles.comparisonBadge, comparison < 0 && styles.comparisonPositive]}>
+                <Ionicons
+                  name={comparison < 0 ? 'trending-down' : 'trending-up'}
+                  size={14}
+                  color={comparison < 0 ? '#22C55E' : '#EF4444'}
+                />
+                <Text style={[styles.comparisonText, comparison < 0 && styles.comparisonTextPositive]}>
+                  {Math.abs(comparison)}%
+                </Text>
+              </View>
+            )}
           </View>
           <Text style={styles.summarySubtext}>
-            Your spending is <Text style={styles.summaryHighlight}>₹125 less</Text> than last month. You're doing great!
+            {comparison < 0 ? (
+              <>You're spending <Text style={styles.summaryHighlight}>{formatCurrency(Math.abs(totalSpent - lastMonthTotal))} less</Text> than last month. Great job!</>
+            ) : comparison > 0 ? (
+              <>You're spending <Text style={[styles.summaryHighlight, { color: '#EF4444' }]}>{formatCurrency(totalSpent - lastMonthTotal)} more</Text> than last month.</>
+            ) : (
+              <>Track your expenses to see how you compare to last month.</>
+            )}
           </Text>
         </Card>
 
         {/* AI Insight */}
         <View style={styles.aiInsightCard}>
           <View style={styles.aiIconContainer}>
-            <Ionicons name="sparkles" size={20} color={Colors.primary} />
+            <Text style={{ fontSize: 18 }}>{aiInsight.emoji}</Text>
           </View>
           <View style={styles.aiContent}>
             <Text style={styles.aiLabel}>Fiscally AI</Text>
             <Text style={styles.aiText}>
-              Your coffee spending is down <Text style={styles.aiHighlight}>10%</Text> this month! Keep up this organic saving habit.
+              {aiInsight.text}
             </Text>
           </View>
         </View>
@@ -134,60 +363,65 @@ export default function TrendsScreen() {
         {/* Category Breakdown Header */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Category Breakdown</Text>
-          <TouchableOpacity>
-            <Text style={styles.sectionLink}>Details</Text>
-          </TouchableOpacity>
+          <Text style={styles.sectionSubtitle}>{categoryBreakdown.length} categories</Text>
         </View>
 
         {/* Category Cards */}
-        {CATEGORY_DATA.map((category) => {
-          const progress = (category.amount / category.budget) * 100;
-          const statusStyle = getStatusStyle(category.status);
-          
-          return (
-            <Card key={category.id} style={styles.categoryCard}>
-              <View style={styles.categoryHeader}>
-                <View style={[styles.categoryIcon, { backgroundColor: category.color + '15' }]}>
-                  <Ionicons name={category.icon as any} size={22} color={category.color} />
-                </View>
-                <View style={styles.categoryInfo}>
-                  <View style={styles.categoryRow}>
-                    <Text style={styles.categoryName}>{category.name}</Text>
-                    <Text style={styles.categoryAmount}>₹{category.amount}</Text>
+        {categoryBreakdown.length === 0 ? (
+          <Card style={styles.emptyCard}>
+            <Ionicons name="pie-chart-outline" size={40} color={Colors.gray400} />
+            <Text style={styles.emptyText}>No transactions yet</Text>
+            <Text style={styles.emptySubtext}>Add expenses to see your spending breakdown</Text>
+          </Card>
+        ) : (
+          categoryBreakdown.map((category) => {
+            const statusStyle = getStatusStyle(category.status);
+
+            return (
+              <Card key={category.id} style={styles.categoryCard}>
+                <View style={styles.categoryHeader}>
+                  <View style={[styles.categoryIcon, { backgroundColor: category.color + '15' }]}>
+                    <Ionicons name={category.icon as any} size={22} color={category.color} />
                   </View>
-                  <View style={styles.progressBar}>
-                    <View 
-                      style={[
-                        styles.progressFill, 
-                        { width: `${Math.min(progress, 100)}%`, backgroundColor: category.color }
-                      ]} 
-                    />
+                  <View style={styles.categoryInfo}>
+                    <View style={styles.categoryRow}>
+                      <Text style={styles.categoryName}>{category.name}</Text>
+                      <Text style={styles.categoryAmount}>{formatCurrency(category.amount)}</Text>
+                    </View>
+                    <View style={styles.progressBar}>
+                      <View
+                        style={[
+                          styles.progressFill,
+                          { width: `${Math.min(category.progress, 100)}%`, backgroundColor: category.color }
+                        ]}
+                      />
+                    </View>
                   </View>
                 </View>
-              </View>
-              <View style={styles.categoryFooter}>
-                <Text style={styles.categoryBudget}>
-                  {Math.round(progress)}% of ₹{category.budget} budget
-                </Text>
-                <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
-                  <Text style={[styles.statusText, { color: statusStyle.text }]}>
-                    {category.status}
+                <View style={styles.categoryFooter}>
+                  <Text style={styles.categoryBudget}>
+                    {category.count} transaction{category.count !== 1 ? 's' : ''}
                   </Text>
+                  <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
+                    <Text style={[styles.statusText, { color: statusStyle.text }]}>
+                      {category.status}
+                    </Text>
+                  </View>
                 </View>
-              </View>
-            </Card>
-          );
-        })}
+              </Card>
+            );
+          })
+        )}
 
         {/* Actionable Tip */}
         <View style={styles.tipCard}>
           <View style={styles.tipGlow} />
           <View style={styles.tipHeader}>
-            <Ionicons name="bulb" size={18} color={Colors.white} />
-            <Text style={styles.tipTitle}>Actionable Tip</Text>
+            <Text style={{ fontSize: 16 }}>{actionableTip.emoji}</Text>
+            <Text style={styles.tipTitle}>{actionableTip.title}</Text>
           </View>
           <Text style={styles.tipText}>
-            You've spent more on <Text style={styles.tipHighlight}>Subscriptions</Text> than usual this cycle. Review active trials before they renew.
+            {actionableTip.text}
           </Text>
         </View>
       </ScrollView>
@@ -201,69 +435,39 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.gray200 + '80',
-  },
-  headerLeft: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  avatarSmall: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.primaryLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: Colors.gray200,
-  },
-  avatarText: {
-    fontSize: FontSize.md,
-    fontWeight: FontWeight.bold,
-    color: Colors.primary,
   },
   headerTitle: {
     fontSize: FontSize.xl,
     fontWeight: FontWeight.bold,
     color: Colors.textPrimary,
   },
-  notificationButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: Colors.gray200,
-  },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
     padding: Spacing.lg,
-    gap: Spacing.md,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   summaryCard: {
-    padding: Spacing.lg,
+    marginBottom: Spacing.lg,
   },
   summaryHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
   },
   summaryLabel: {
-    fontSize: 10,
-    fontWeight: FontWeight.bold,
-    color: Colors.gray400,
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.semibold,
+    color: Colors.gray500,
     letterSpacing: 1,
     marginBottom: 4,
   },
@@ -275,22 +479,22 @@ const styles = StyleSheet.create({
   comparisonBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: Colors.gray100,
+    backgroundColor: '#EF444420',
     paddingHorizontal: Spacing.sm,
-    paddingVertical: 6,
+    paddingVertical: 4,
     borderRadius: BorderRadius.full,
+    gap: 4,
   },
   comparisonPositive: {
-    backgroundColor: '#99A88C20',
+    backgroundColor: '#22C55E20',
   },
   comparisonText: {
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.bold,
-    color: Colors.textPrimary,
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: '#EF4444',
   },
   comparisonTextPositive: {
-    color: '#99A88C',
+    color: '#22C55E',
   },
   summarySubtext: {
     fontSize: FontSize.sm,
@@ -298,74 +502,88 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   summaryHighlight: {
+    color: '#22C55E',
     fontWeight: FontWeight.semibold,
-    color: Colors.textPrimary,
   },
   aiInsightCard: {
     flexDirection: 'row',
-    backgroundColor: Colors.primary + '10',
+    backgroundColor: Colors.surface,
     borderRadius: BorderRadius.lg,
     padding: Spacing.md,
-    gap: Spacing.md,
+    marginBottom: Spacing.lg,
     borderWidth: 1,
-    borderColor: Colors.primary + '20',
+    borderColor: Colors.primary + '30',
   },
   aiIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.primary + '20',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.primary + '15',
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: Spacing.md,
   },
   aiContent: {
     flex: 1,
   },
   aiLabel: {
-    fontSize: FontSize.sm,
+    fontSize: FontSize.xs,
     fontWeight: FontWeight.bold,
     color: Colors.primary,
-    marginBottom: 2,
+    marginBottom: 4,
   },
   aiText: {
     fontSize: FontSize.sm,
     color: Colors.textSecondary,
     lineHeight: 20,
   },
-  aiHighlight: {
-    fontWeight: FontWeight.bold,
-    color: Colors.textPrimary,
-  },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: Spacing.md,
     marginTop: Spacing.sm,
   },
   sectionTitle: {
-    fontSize: FontSize.lg,
+    fontSize: FontSize.md,
     fontWeight: FontWeight.bold,
     color: Colors.textPrimary,
   },
-  sectionLink: {
+  sectionSubtitle: {
     fontSize: FontSize.sm,
-    fontWeight: FontWeight.bold,
-    color: Colors.primary,
+    color: Colors.gray500,
+  },
+  emptyCard: {
+    alignItems: 'center',
+    padding: Spacing.xl,
+    marginBottom: Spacing.lg,
+  },
+  emptyText: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.semibold,
+    color: Colors.textPrimary,
+    marginTop: Spacing.md,
+  },
+  emptySubtext: {
+    fontSize: FontSize.sm,
+    color: Colors.gray500,
+    marginTop: 4,
   },
   categoryCard: {
+    marginBottom: Spacing.md,
     padding: Spacing.md,
   },
   categoryHeader: {
     flexDirection: 'row',
-    gap: Spacing.md,
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
   },
   categoryIcon: {
     width: 44,
     height: 44,
-    borderRadius: BorderRadius.md,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: Spacing.md,
   },
   categoryInfo: {
     flex: 1,
@@ -374,11 +592,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: Spacing.xs,
+    marginBottom: 8,
   },
   categoryName: {
     fontSize: FontSize.md,
-    fontWeight: FontWeight.bold,
+    fontWeight: FontWeight.semibold,
     color: Colors.textPrimary,
   },
   categoryAmount: {
@@ -387,72 +605,66 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
   },
   progressBar: {
-    height: 8,
-    backgroundColor: Colors.gray100,
-    borderRadius: 4,
+    height: 6,
+    backgroundColor: Colors.gray200,
+    borderRadius: 3,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    borderRadius: 4,
+    borderRadius: 3,
   },
   categoryFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginTop: Spacing.sm,
   },
   categoryBudget: {
-    fontSize: FontSize.xs,
-    color: Colors.gray400,
+    fontSize: FontSize.sm,
+    color: Colors.gray500,
   },
   statusBadge: {
     paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.sm,
+    paddingVertical: 3,
+    borderRadius: BorderRadius.full,
   },
   statusText: {
-    fontSize: 9,
-    fontWeight: FontWeight.bold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.semibold,
   },
   tipCard: {
     backgroundColor: Colors.primary,
     borderRadius: BorderRadius.lg,
     padding: Spacing.lg,
-    marginTop: Spacing.sm,
+    marginTop: Spacing.md,
     overflow: 'hidden',
   },
   tipGlow: {
     position: 'absolute',
-    right: -30,
-    top: -30,
-    width: 120,
-    height: 120,
-    backgroundColor: Colors.white,
-    opacity: 0.1,
-    borderRadius: 60,
+    top: -50,
+    right: -50,
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    backgroundColor: 'rgba(255,255,255,0.15)',
   },
   tipHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.sm,
     marginBottom: Spacing.sm,
+    gap: Spacing.sm,
   },
   tipTitle: {
-    fontSize: FontSize.md,
+    fontSize: FontSize.sm,
     fontWeight: FontWeight.bold,
     color: Colors.white,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   tipText: {
-    fontSize: FontSize.sm,
-    color: Colors.white,
-    opacity: 0.9,
-    lineHeight: 20,
-  },
-  tipHighlight: {
-    fontWeight: FontWeight.bold,
-    color: Colors.white,
-    textDecorationLine: 'underline',
+    fontSize: FontSize.md,
+    color: 'rgba(255,255,255,0.9)',
+    lineHeight: 22,
   },
 });

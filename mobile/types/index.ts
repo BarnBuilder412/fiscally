@@ -5,6 +5,7 @@ export interface User {
   currency: string;
   income_range?: string;
   created_at: string;
+  profile?: any;
 }
 
 export interface Transaction {

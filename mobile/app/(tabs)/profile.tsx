@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { api } from '@/services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
@@ -66,6 +68,51 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const [smsTracking, setSmsTracking] = useState(true);
   const [notifications, setNotifications] = useState(true);
+  const [user, setUser] = useState<{ name: string; email: string; initials: string } | null>(null);
+
+  const loadProfile = async () => {
+    try {
+      const userData = await api.getMe();
+      if (userData) {
+        // Name priority: 1. Top level name, 2. Profile identity name, 3. Extract from email
+        let displayName = userData.name;
+
+        if (!displayName && userData.profile?.identity?.name) {
+          displayName = userData.profile.identity.name;
+        }
+
+        if (!displayName && userData.email) {
+          const emailName = userData.email.split('@')[0];
+          displayName = emailName
+            .split(/[._]/)
+            .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+            .join(' ');
+        }
+
+        const finalName = displayName || 'User';
+        const initials = finalName
+          .split(' ')
+          .map(p => p[0])
+          .join('')
+          .toUpperCase()
+          .slice(0, 2);
+
+        setUser({
+          name: finalName,
+          email: userData.email || '',
+          initials
+        });
+      }
+    } catch (error) {
+      console.log('Failed to load profile:', error);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      loadProfile();
+    }, [])
+  );
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -73,7 +120,7 @@ export default function ProfileScreen() {
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <Ionicons name="chevron-back" size={24} color={Colors.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Settings</Text>
+        <Text style={styles.headerTitle}>Profile Settings</Text>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -89,16 +136,44 @@ export default function ProfileScreen() {
         <View style={styles.profileSection}>
           <View style={styles.avatarContainer}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>K</Text>
+              <Text style={styles.avatarText}>{user?.initials || 'K'}</Text>
             </View>
           </View>
-          <Text style={styles.profileName}>Kaushal</Text>
+          <Text style={styles.profileName}>{user?.name || 'Kaushal'}</Text>
           <View style={styles.proBadge}>
             <Ionicons name="checkmark-circle" size={12} color={Colors.primary} />
             <Text style={styles.proBadgeText}>PRO PLAN MEMBER</Text>
           </View>
-          <Text style={styles.profileEmail}>kaushal@fiscally.ai</Text>
+          <Text style={styles.profileEmail}>{user?.email || 'kaushal@fiscally.ai'}</Text>
         </View>
+
+        {/* Financial Preferences Section */}
+        <Text style={styles.sectionLabel}>FINANCIAL PREFERENCES</Text>
+        <Card padding="none" style={styles.settingsCard}>
+          <SettingItem
+            icon="wallet"
+            iconColor="#22C55E"
+            title="Monthly Income"
+            subtitle="Set your income range"
+            onPress={() => router.push('/preferences/income')}
+          />
+          <View style={styles.divider} />
+          <SettingItem
+            icon="cash"
+            iconColor="#3B82F6"
+            title="Monthly Budget"
+            subtitle="Set your spending budget"
+            onPress={() => router.push('/preferences/budget')}
+          />
+          <View style={styles.divider} />
+          <SettingItem
+            icon="flag"
+            iconColor="#8B5CF6"
+            title="Savings Goals"
+            subtitle="Manage your financial goals"
+            onPress={() => router.push('/preferences/goals')}
+          />
+        </Card>
 
         {/* Automation Section */}
         <Text style={styles.sectionLabel}>AUTOMATION</Text>

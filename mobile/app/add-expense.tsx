@@ -26,6 +26,7 @@ import { CATEGORIES, getCategoryColor } from '@/constants/categories';
 import { Button } from '@/components';
 import { api } from '@/services/api';
 import { useResponsive } from '@/hooks';
+import { eventBus, Events } from '@/services/eventBus';
 
 export default function AddExpenseScreen() {
   const router = useRouter();
@@ -68,6 +69,8 @@ export default function AddExpenseScreen() {
         note: note,
         source: 'manual',
       });
+      // Emit event for instant updates across all screens
+      eventBus.emit(Events.TRANSACTION_ADDED);
       handleSafeBack();
     } catch (error: any) {
       alert(error.message || 'Failed to save transaction');
