@@ -65,7 +65,6 @@ export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [smsTracking, setSmsTracking] = useState(true);
-  const [voiceInput, setVoiceInput] = useState(false);
   const [notifications, setNotifications] = useState(true);
 
   return (
@@ -92,9 +91,6 @@ export default function ProfileScreen() {
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>K</Text>
             </View>
-            <TouchableOpacity style={styles.editAvatarButton}>
-              <Ionicons name="pencil" size={12} color={Colors.white} />
-            </TouchableOpacity>
           </View>
           <Text style={styles.profileName}>Kaushal</Text>
           <View style={styles.proBadge}>
@@ -118,22 +114,6 @@ export default function ProfileScreen() {
                 onValueChange={setSmsTracking}
                 trackColor={{ false: Colors.gray200, true: Colors.primaryLight }}
                 thumbColor={smsTracking ? Colors.primary : Colors.white}
-                ios_backgroundColor={Colors.gray200}
-              />
-            }
-          />
-          <View style={styles.divider} />
-          <SettingItem
-            icon="mic"
-            title="Voice input"
-            subtitle="Dictate expenses to AI"
-            showArrow={false}
-            rightElement={
-              <Switch
-                value={voiceInput}
-                onValueChange={setVoiceInput}
-                trackColor={{ false: Colors.gray200, true: Colors.primaryLight }}
-                thumbColor={voiceInput ? Colors.error : Colors.error}
                 ios_backgroundColor={Colors.gray200}
               />
             }
@@ -162,14 +142,16 @@ export default function ProfileScreen() {
           <SettingItem
             icon="download"
             title="Export data"
-            onPress={() => { }}
+            subtitle="Coming Soon"
+            showArrow={false}
           />
           <View style={styles.divider} />
           <SettingItem
             icon="shield-checkmark"
             iconColor="#6B7F67"
             title="Privacy & Security"
-            onPress={() => { }}
+            subtitle="Coming Soon"
+            showArrow={false}
           />
         </Card>
 
@@ -254,19 +236,6 @@ const styles = StyleSheet.create({
     fontSize: 40,
     fontWeight: FontWeight.bold,
     color: Colors.primary,
-  },
-  editAvatarButton: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: Colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: Colors.surface,
   },
   profileName: {
     fontSize: 22,

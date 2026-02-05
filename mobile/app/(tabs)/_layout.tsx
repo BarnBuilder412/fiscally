@@ -19,9 +19,9 @@ function CustomTabBar({ state, navigation }: TabBarProps) {
 
   const tabs = [
     { name: 'index', label: 'Home', icon: 'home', iconOutline: 'home-outline' },
-    { name: 'trends', label: 'Trends', icon: 'trending-up', iconOutline: 'trending-up-outline' },
+    { name: 'activity', label: 'Activity', icon: 'pulse', iconOutline: 'pulse-outline' },
     { name: 'add', label: '', icon: 'add', isCenter: true },
-    { name: 'wallet', label: 'Wallet', icon: 'wallet', iconOutline: 'wallet-outline' },
+    { name: 'trends', label: 'Trends', icon: 'trending-up', iconOutline: 'trending-up-outline' },
     { name: 'profile', label: 'Profile', icon: 'person', iconOutline: 'person-outline' },
   ];
 
@@ -98,8 +98,8 @@ export default function TabLayout() {
       }}
     >
       <Tabs.Screen name="index" />
+      <Tabs.Screen name="activity" />
       <Tabs.Screen name="trends" />
-      <Tabs.Screen name="wallet" />
       <Tabs.Screen name="profile" />
       <Tabs.Screen
         name="chat"
@@ -115,6 +115,12 @@ export default function TabLayout() {
       />
       <Tabs.Screen
         name="settings"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="wallet"
         options={{
           href: null,
         }}

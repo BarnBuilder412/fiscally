@@ -6,6 +6,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   Dimensions,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -24,37 +25,89 @@ import { INCOME_RANGES } from '@/constants';
 
 const { width } = Dimensions.get('window');
 
-type Step = 'welcome' | 'income' | 'sms' | 'complete';
+type Step = 'welcome' | 'income' | 'budget' | 'goals' | 'sms' | 'complete';
+
+const BUDGET_RANGES = [
+  { id: 'below_20k', label: 'Less than ₹20,000' },
+  { id: '20k_40k', label: '₹20,000 - ₹40,000' },
+  { id: '40k_70k', label: '₹40,000 - ₹70,000' },
+  { id: '70k_100k', label: '₹70,000 - ₹1,00,000' },
+  { id: 'above_100k', label: 'More than ₹1,00,000' },
+];
+
+const SAVINGS_GOALS = [
+  { id: 'emergency', label: 'Emergency Fund', icon: 'shield-checkmark' },
+  { id: 'vacation', label: 'Vacation', icon: 'airplane' },
+  { id: 'investment', label: 'Investment', icon: 'trending-up' },
+  { id: 'gadget', label: 'New Gadget', icon: 'phone-portrait' },
+  { id: 'home', label: 'Home/Rent', icon: 'home' },
+  { id: 'education', label: 'Education', icon: 'school' },
+];
 
 export default function OnboardingScreen() {
   const router = useRouter();
   const [step, setStep] = useState<Step>('welcome');
   const [selectedIncome, setSelectedIncome] = useState<string | null>(null);
+  const [selectedBudget, setSelectedBudget] = useState<string | null>(null);
+  const [selectedGoals, setSelectedGoals] = useState<string[]>([]);
   const [smsEnabled, setSmsEnabled] = useState(false);
+
+  const getStepNumber = () => {
+    switch (step) {
+      case 'income': return { current: 1, total: 5 };
+      case 'budget': return { current: 2, total: 5 };
+      case 'goals': return { current: 3, total: 5 };
+      case 'sms': return { current: 4, total: 5 };
+      case 'complete': return { current: 5, total: 5 };
+      default: return { current: 0, total: 5 };
+    }
+  };
+
+  const getProgress = () => {
+    const { current, total } = getStepNumber();
+    return (current / total) * 100;
+  };
 
   const handleNext = () => {
     if (step === 'welcome') {
       setStep('income');
     } else if (step === 'income') {
+      setStep('budget');
+    } else if (step === 'budget') {
+      setStep('goals');
+    } else if (step === 'goals') {
       setStep('sms');
     } else if (step === 'sms') {
       setStep('complete');
     }
   };
 
-  const handleSkip = () => {
-    if (step === 'welcome') {
+  const handleBack = () => {
+    if (step === 'income') {
+      setStep('welcome');
+    } else if (step === 'budget') {
       setStep('income');
-    } else if (step === 'income') {
-      setStep('sms');
+    } else if (step === 'goals') {
+      setStep('budget');
     } else if (step === 'sms') {
-      setStep('complete');
+      setStep('goals');
     }
+  };
+
+  const handleSkip = () => {
+    handleNext();
   };
 
   const handleComplete = async () => {
     try {
       await AsyncStorage.setItem('is_onboarded', 'true');
+      // Save budget and goals if needed
+      if (selectedBudget) {
+        await AsyncStorage.setItem('user_budget', selectedBudget);
+      }
+      if (selectedGoals.length > 0) {
+        await AsyncStorage.setItem('user_goals', JSON.stringify(selectedGoals));
+      }
       router.replace('/(tabs)');
     } catch (e) {
       console.error('Failed to save onboarding state', e);
@@ -66,8 +119,16 @@ export default function OnboardingScreen() {
     router.replace('/add-expense');
   };
 
+  const toggleGoal = (goalId: string) => {
+    setSelectedGoals(prev =>
+      prev.includes(goalId)
+        ? prev.filter(g => g !== goalId)
+        : [...prev, goalId]
+    );
+  };
+
   const renderDots = () => {
-    const steps: Step[] = ['income', 'sms', 'complete'];
+    const steps: Step[] = ['income', 'budget', 'goals', 'sms', 'complete'];
     return (
       <View style={styles.dotsContainer}>
         {steps.map((s) => (
@@ -128,18 +189,18 @@ export default function OnboardingScreen() {
   const renderIncomeStep = () => (
     <>
       <View style={styles.stepHeader}>
-        <TouchableOpacity onPress={() => setStep('welcome')} style={styles.backButton}>
+        <TouchableOpacity onPress={handleBack} style={styles.backButton}>
           <Ionicons name="chevron-back" size={24} color={Colors.textPrimary} />
         </TouchableOpacity>
       </View>
 
       <View style={styles.progressContainer}>
         <View style={styles.progressLabels}>
-          <Text style={styles.progressStepText}>STEP 2 OF 5</Text>
+          <Text style={styles.progressStepText}>STEP {getStepNumber().current} OF {getStepNumber().total}</Text>
           <Text style={styles.progressStepText}>ONBOARDING</Text>
         </View>
         <View style={styles.progressBarBg}>
-          <View style={[styles.progressBarFill, { width: '40%' }]} />
+          <View style={[styles.progressBarFill, { width: `${getProgress()}%` }]} />
         </View>
       </View>
 
@@ -175,6 +236,139 @@ export default function OnboardingScreen() {
           title="Continue →"
           onPress={handleNext}
           disabled={!selectedIncome}
+          size="lg"
+          style={styles.footerButton}
+        />
+      </View>
+    </>
+  );
+
+  const renderBudgetStep = () => (
+    <>
+      <View style={styles.stepHeader}>
+        <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+          <Ionicons name="chevron-back" size={24} color={Colors.textPrimary} />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={handleSkip}>
+          <Text style={styles.headerSkipText}>Skip</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.progressContainer}>
+        <View style={styles.progressLabels}>
+          <Text style={styles.progressStepText}>STEP {getStepNumber().current} OF {getStepNumber().total}</Text>
+          <Text style={styles.progressStepText}>BUDGET</Text>
+        </View>
+        <View style={styles.progressBarBg}>
+          <View style={[styles.progressBarFill, { width: `${getProgress()}%` }]} />
+        </View>
+      </View>
+
+      <Text style={styles.stepTitle}>Set your monthly budget</Text>
+      <Text style={styles.stepSubtitle}>
+        How much do you want to spend each month? We'll help you stay on track.
+      </Text>
+
+      <View style={styles.optionsContainer}>
+        {BUDGET_RANGES.map((range) => (
+          <TouchableOpacity
+            key={range.id}
+            style={[
+              styles.optionCard,
+              selectedBudget === range.id && styles.optionCardSelected,
+            ]}
+            onPress={() => setSelectedBudget(range.id)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.optionCardText}>{range.label}</Text>
+            <View style={[
+              styles.radioButton,
+              selectedBudget === range.id && styles.radioButtonSelected
+            ]}>
+              {selectedBudget === range.id && <View style={styles.radioButtonInner} />}
+            </View>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      <View style={styles.footer}>
+        <Button
+          title="Continue →"
+          onPress={handleNext}
+          disabled={!selectedBudget}
+          size="lg"
+          style={styles.footerButton}
+        />
+      </View>
+    </>
+  );
+
+  const renderGoalsStep = () => (
+    <>
+      <View style={styles.stepHeader}>
+        <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+          <Ionicons name="chevron-back" size={24} color={Colors.textPrimary} />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={handleSkip}>
+          <Text style={styles.headerSkipText}>Skip</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.progressContainer}>
+        <View style={styles.progressLabels}>
+          <Text style={styles.progressStepText}>STEP {getStepNumber().current} OF {getStepNumber().total}</Text>
+          <Text style={styles.progressStepText}>GOALS</Text>
+        </View>
+        <View style={styles.progressBarBg}>
+          <View style={[styles.progressBarFill, { width: `${getProgress()}%` }]} />
+        </View>
+      </View>
+
+      <Text style={styles.stepTitle}>What are you saving for?</Text>
+      <Text style={styles.stepSubtitle}>
+        Select your financial goals. We'll track your progress and give personalized tips.
+      </Text>
+
+      <View style={styles.goalsGrid}>
+        {SAVINGS_GOALS.map((goal) => (
+          <TouchableOpacity
+            key={goal.id}
+            style={[
+              styles.goalCard,
+              selectedGoals.includes(goal.id) && styles.goalCardSelected,
+            ]}
+            onPress={() => toggleGoal(goal.id)}
+            activeOpacity={0.7}
+          >
+            <View style={[
+              styles.goalIcon,
+              selectedGoals.includes(goal.id) && styles.goalIconSelected,
+            ]}>
+              <Ionicons
+                name={goal.icon as any}
+                size={24}
+                color={selectedGoals.includes(goal.id) ? Colors.primary : Colors.gray500}
+              />
+            </View>
+            <Text style={[
+              styles.goalLabel,
+              selectedGoals.includes(goal.id) && styles.goalLabelSelected,
+            ]}>
+              {goal.label}
+            </Text>
+            {selectedGoals.includes(goal.id) && (
+              <View style={styles.goalCheck}>
+                <Ionicons name="checkmark" size={12} color={Colors.white} />
+              </View>
+            )}
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      <View style={styles.footer}>
+        <Button
+          title="Continue →"
+          onPress={handleNext}
           size="lg"
           style={styles.footerButton}
         />
@@ -270,19 +464,20 @@ export default function OnboardingScreen() {
       )}
 
       {/* Content */}
-      {/* Content */}
       {step === 'welcome' ? (
         renderWelcomeStep()
       ) : (
         <View style={styles.content}>
           {step === 'income' && renderIncomeStep()}
+          {step === 'budget' && renderBudgetStep()}
+          {step === 'goals' && renderGoalsStep()}
           {step === 'sms' && renderSmsStep()}
           {step === 'complete' && renderCompleteStep()}
         </View>
       )}
 
-      {/* Dots - Only show for SMS and Complete */}
-      {(step === 'sms' || step === 'complete') && renderDots()}
+      {/* Dots - Show for steps after welcome */}
+      {step !== 'welcome' && renderDots()}
     </SafeAreaView>
   );
 }
@@ -502,6 +697,62 @@ const styles = StyleSheet.create({
   footerButton: {
     backgroundColor: '#1E293B',
     borderRadius: BorderRadius.full,
+  },
+
+  // Goals Step Styles
+  goalsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.md,
+    marginBottom: Spacing.xl,
+  },
+  goalCard: {
+    width: '47%',
+    aspectRatio: 1.2,
+    backgroundColor: Colors.white,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    borderColor: Colors.gray200,
+    padding: Spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  goalCardSelected: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primary + '08',
+  },
+  goalIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: Colors.gray100,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.sm,
+  },
+  goalIconSelected: {
+    backgroundColor: Colors.primary + '20',
+  },
+  goalLabel: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
+  goalLabelSelected: {
+    color: Colors.primary,
+  },
+  goalCheck: {
+    position: 'absolute',
+    top: Spacing.sm,
+    right: Spacing.sm,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   // Existing/Shared Styles

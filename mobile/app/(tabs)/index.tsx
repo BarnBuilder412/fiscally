@@ -23,11 +23,10 @@ import {
 import {
   TransactionItem,
   CategoryCard,
-  InsightCard,
   Card,
 } from '@/components';
 import { api } from '@/services/api';
-import { Transaction, Insight } from '@/types';
+import { Transaction } from '@/types';
 import { useResponsive } from '@/hooks';
 
 export default function HomeScreen() {
@@ -36,7 +35,14 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [insights, setInsights] = useState<{ patterns: Insight[]; alerts: Insight[] }>({ patterns: [], alerts: [] });
+  const [insights, setInsights] = useState<{
+    headline?: string;
+    summary?: string;
+    tip?: string;
+    period_days?: number;
+    total_spent?: number;
+    transaction_count?: number;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
 
@@ -59,9 +65,11 @@ export default function HomeScreen() {
         setInsights(insightsData as { patterns: Insight[]; alerts: Insight[] });
       }
     } catch (error: any) {
-      console.error('Failed to load home data:', error);
-      if (error?.message?.includes('Not authenticated')) {
+      // Only log unexpected errors, not auth failures
+      if (error?.message?.includes('credentials') || error?.message?.includes('Not authenticated')) {
         setIsAuthenticated(false);
+      } else {
+        console.error('Failed to load home data:', error);
       }
     } finally {
       setLoading(false);
@@ -116,26 +124,7 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <TouchableOpacity style={styles.menuButton}>
-            <Ionicons name="menu" size={24} color={Colors.textPrimary} />
-          </TouchableOpacity>
-          <View>
-            <Text style={styles.logoText}>FISCALLY</Text>
-            <View style={styles.aiStatus}>
-              <View style={styles.aiDot} />
-              <Text style={styles.aiText}>AI Active</Text>
-            </View>
-          </View>
-        </View>
-        <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.iconButton}>
-            <Ionicons name="notifications-outline" size={24} color={Colors.textPrimary} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.iconButton}>
-            <Ionicons name="person-circle-outline" size={28} color={Colors.textPrimary} />
-          </TouchableOpacity>
-        </View>
+        <Text style={styles.logoText}>FISCALLY</Text>
       </View>
 
       <ScrollView
@@ -194,14 +183,23 @@ export default function HomeScreen() {
         )}
 
         {/* AI Insight */}
-        {(insights?.patterns?.length > 0 || insights?.alerts?.length > 0) && (
+        {insights && (insights.headline || insights.tip) && (
           <View style={styles.section}>
-            {insights.alerts?.map(insight => (
-              <InsightCard key={insight.id} insight={insight} />
-            ))}
-            {insights.patterns?.map(insight => (
-              <InsightCard key={insight.id} insight={insight} />
-            ))}
+            <Text style={styles.sectionTitle}>AI Insights</Text>
+            <Card style={styles.insightCard}>
+              {insights.headline && (
+                <Text style={styles.insightHeadline}>{insights.headline}</Text>
+              )}
+              {insights.summary && (
+                <Text style={styles.insightSummary}>{insights.summary}</Text>
+              )}
+              {insights.tip && (
+                <View style={styles.tipContainer}>
+                  <Ionicons name="bulb" size={16} color={Colors.primary} />
+                  <Text style={styles.tipText}>{insights.tip}</Text>
+                </View>
+              )}
+            </Card>
           </View>
         )}
 
@@ -246,7 +244,7 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
@@ -254,42 +252,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.primary + '1A',
   },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  menuButton: {
-    marginRight: Spacing.md,
-  },
   logoText: {
     fontSize: FontSize.lg,
     fontWeight: FontWeight.bold,
     color: Colors.primary,
     letterSpacing: 1,
-  },
-  aiStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 2,
-  },
-  aiDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: Colors.success,
-    marginRight: 4,
-  },
-  aiText: {
-    fontSize: FontSize.xs,
-    color: Colors.textSecondary,
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  iconButton: {
-    padding: Spacing.xs,
-    marginLeft: Spacing.sm,
   },
   scrollView: {
     flex: 1,
@@ -370,5 +337,34 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.medium,
     color: Colors.primary,
     marginRight: Spacing.xs,
+  },
+  insightCard: {
+    padding: Spacing.lg,
+  },
+  insightHeadline: {
+    fontSize: FontSize.lg,
+    fontWeight: FontWeight.bold,
+    color: Colors.textPrimary,
+    marginBottom: Spacing.sm,
+  },
+  insightSummary: {
+    fontSize: FontSize.md,
+    color: Colors.textSecondary,
+    lineHeight: 22,
+    marginBottom: Spacing.md,
+  },
+  tipContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: Colors.primary + '10',
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    gap: Spacing.sm,
+  },
+  tipText: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    color: Colors.primary,
+    fontWeight: FontWeight.medium,
   },
 });

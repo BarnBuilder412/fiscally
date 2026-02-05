@@ -174,7 +174,7 @@ export default function AddExpenseScreen() {
 
           {/* Save Button */}
           <Button
-            title="💾  Save"
+            title="Add Expense"
             onPress={handleSave}
             disabled={!amount || !selectedCategory}
             loading={isSubmitting}
