@@ -49,12 +49,15 @@ export default function HomeScreen() {
         return;
       }
       setIsAuthenticated(true);
-      const [txns, insightsData] = await Promise.all([
+      const [txnResponse, insightsData] = await Promise.all([
         api.getTransactions({ limit: 10 }),
-        api.getInsights().catch(() => ({ patterns: [], alerts: [] })),
+        api.getInsights().catch(() => null),
       ]);
-      setTransactions(txns);
-      setInsights(insightsData);
+      setTransactions(txnResponse.transactions);
+      // Handle insights - API may return different shape than expected
+      if (insightsData && 'patterns' in insightsData && 'alerts' in insightsData) {
+        setInsights(insightsData as { patterns: Insight[]; alerts: Insight[] });
+      }
     } catch (error: any) {
       console.error('Failed to load home data:', error);
       if (error?.message?.includes('Not authenticated')) {

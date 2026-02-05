@@ -54,3 +54,11 @@ export interface AuthTokens {
   refresh_token: string;
   token_type: string;
 }
+
+export interface TransactionListResponse {
+  transactions: Transaction[];
+  total: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+}

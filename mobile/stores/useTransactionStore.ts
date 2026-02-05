@@ -6,9 +6,19 @@ interface TransactionState {
   transactions: Transaction[];
   monthlyStats: MonthlyStats | null;
   isLoading: boolean;
+  isLoadingMore: boolean;
   error: string | null;
-  
-  fetchTransactions: (params?: { limit?: number; offset?: number; category?: string }) => Promise<void>;
+  total: number;
+  hasMore: boolean;
+  currentOffset: number;
+  currentCategory: string | null;
+
+  fetchTransactions: (params?: {
+    limit?: number;
+    category?: string;
+    reset?: boolean;
+  }) => Promise<void>;
+  fetchMoreTransactions: () => Promise<void>;
   addTransaction: (data: {
     amount: number;
     merchant?: string;
@@ -25,23 +35,76 @@ interface TransactionState {
     clarification_question?: string;
   }>;
   clearError: () => void;
+  resetTransactions: () => void;
 }
+
+const PAGE_SIZE = 20;
 
 export const useTransactionStore = create<TransactionState>((set, get) => ({
   transactions: [],
   monthlyStats: null,
   isLoading: false,
+  isLoadingMore: false,
   error: null,
+  total: 0,
+  hasMore: false,
+  currentOffset: 0,
+  currentCategory: null,
 
   fetchTransactions: async (params) => {
-    set({ isLoading: true, error: null });
+    const { reset = true, limit = PAGE_SIZE, category } = params || {};
+
+    if (reset) {
+      set({ isLoading: true, error: null, currentOffset: 0, currentCategory: category || null });
+    }
+
     try {
-      const transactions = await api.getTransactions(params);
-      set({ transactions, isLoading: false });
+      const response = await api.getTransactions({
+        limit,
+        offset: 0,
+        category: category || undefined
+      });
+
+      set({
+        transactions: response.transactions,
+        total: response.total,
+        hasMore: response.hasMore,
+        currentOffset: response.transactions.length,
+        isLoading: false
+      });
     } catch (error) {
-      set({ 
-        error: error instanceof Error ? error.message : 'Failed to fetch transactions', 
-        isLoading: false 
+      set({
+        error: error instanceof Error ? error.message : 'Failed to fetch transactions',
+        isLoading: false
+      });
+    }
+  },
+
+  fetchMoreTransactions: async () => {
+    const { hasMore, isLoadingMore, currentOffset, currentCategory } = get();
+
+    if (!hasMore || isLoadingMore) return;
+
+    set({ isLoadingMore: true, error: null });
+
+    try {
+      const response = await api.getTransactions({
+        limit: PAGE_SIZE,
+        offset: currentOffset,
+        category: currentCategory || undefined
+      });
+
+      set((state) => ({
+        transactions: [...state.transactions, ...response.transactions],
+        total: response.total,
+        hasMore: response.hasMore,
+        currentOffset: state.currentOffset + response.transactions.length,
+        isLoadingMore: false
+      }));
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : 'Failed to load more transactions',
+        isLoadingMore: false
       });
     }
   },
@@ -50,15 +113,16 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const transaction = await api.createTransaction(data);
-      set((state) => ({ 
+      set((state) => ({
         transactions: [transaction, ...state.transactions],
-        isLoading: false 
+        total: state.total + 1,
+        isLoading: false
       }));
       return transaction;
     } catch (error) {
-      set({ 
-        error: error instanceof Error ? error.message : 'Failed to add transaction', 
-        isLoading: false 
+      set({
+        error: error instanceof Error ? error.message : 'Failed to add transaction',
+        isLoading: false
       });
       throw error;
     }
@@ -71,13 +135,21 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
       set({ isLoading: false });
       return result;
     } catch (error) {
-      set({ 
-        error: error instanceof Error ? error.message : 'Failed to parse voice', 
-        isLoading: false 
+      set({
+        error: error instanceof Error ? error.message : 'Failed to parse voice',
+        isLoading: false
       });
       throw error;
     }
   },
 
   clearError: () => set({ error: null }),
+
+  resetTransactions: () => set({
+    transactions: [],
+    total: 0,
+    hasMore: false,
+    currentOffset: 0,
+    currentCategory: null
+  }),
 }));

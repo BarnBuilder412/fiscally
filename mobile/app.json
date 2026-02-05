@@ -31,7 +31,12 @@
         "android.permission.RECORD_AUDIO"
       ]
     },
-        "plugins": [
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/icon.png"
+    },
+    "plugins": [
       "expo-router"
     ],
     "experiments": {

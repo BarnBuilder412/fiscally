@@ -120,20 +120,32 @@ class ApiClient {
     limit?: number;
     offset?: number;
     category?: string;
-  }): Promise<Transaction[]> {
+    start_date?: string;
+    end_date?: string;
+    merchant?: string;
+  }): Promise<{ transactions: Transaction[]; total: number; hasMore: boolean }> {
     const queryParams = new URLSearchParams();
     if (params?.limit) queryParams.set('limit', params.limit.toString());
     if (params?.offset) queryParams.set('offset', params.offset.toString());
     if (params?.category) queryParams.set('category', params.category);
+    if (params?.start_date) queryParams.set('start_date', params.start_date);
+    if (params?.end_date) queryParams.set('end_date', params.end_date);
+    if (params?.merchant) queryParams.set('merchant', params.merchant);
 
     const query = queryParams.toString();
-    const response = await this.request<{ transactions: any[] }>(`/api/v1/transactions${query ? `?${query}` : ''}`);
+    const response = await this.request<{ transactions: any[]; total: number; has_more: boolean }>(
+      `/api/v1/transactions${query ? `?${query}` : ''}`
+    );
 
     // Convert string amount to number and extract array
-    return response.transactions.map(t => ({
-      ...t,
-      amount: parseFloat(t.amount),
-    }));
+    return {
+      transactions: response.transactions.map(t => ({
+        ...t,
+        amount: parseFloat(t.amount),
+      })),
+      total: response.total,
+      hasMore: response.has_more,
+    };
   }
 
   async createTransaction(data: {
