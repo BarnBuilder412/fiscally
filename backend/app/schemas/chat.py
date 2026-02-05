@@ -1,7 +1,7 @@
 """
 Chat schemas for AI conversation endpoints.
 """
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from pydantic import BaseModel, Field
 
 
@@ -25,6 +25,13 @@ class ChatResponse(BaseModel):
     response: str = Field(..., description="AI response")
     memory_updated: bool = Field(False, description="Whether a new fact was stored")
     new_fact: Optional[str] = Field(None, description="Fact that was stored, if any")
+    trace_id: Optional[str] = Field(None, description="Opik trace ID for feedback logging")
+
+
+class ChatFeedbackRequest(BaseModel):
+    """Request to log chat feedback."""
+    trace_id: str = Field(..., description="The trace ID from the chat response")
+    rating: Literal[1, 2] = Field(..., description="1 = thumbs down, 2 = thumbs up")
 
 
 class InsightRequest(BaseModel):
@@ -40,3 +47,4 @@ class InsightResponse(BaseModel):
     period_days: int
     total_spent: float
     transaction_count: int
+

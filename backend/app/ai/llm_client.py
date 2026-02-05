@@ -122,7 +122,7 @@ class LLMClient:
     # TRANSACTION CATEGORIZATION (with search fallback)
     # =========================================================================
     
-    @opik.track(name="categorize_transaction")
+    @opik.track(name="categorize_transaction", tags=["categorization", "core", "transaction"])
     async def categorize_transaction(
         self,
         transaction: Dict[str, Any],
@@ -136,16 +136,33 @@ class LLMClient:
         2. LLM categorization
         3. If confidence < 0.7 AND unknown merchant → search → re-categorize
         """
+        from opik import opik_context
+        
         merchant = transaction.get("merchant", "")
+        amount = transaction.get("amount", 0)
+        
+        # Log input metadata to Opik
+        opik_context.update_current_span(metadata={
+            "merchant": merchant,
+            "amount": amount,
+            "model": self.model,
+            "has_user_context": user_context is not None
+        })
         
         # Step 1: Fast path - known merchant lookup
         known_category = lookup_merchant(merchant)
         if known_category:
-            return {
+            result = {
                 "category": known_category,
                 "confidence": 0.95,
                 "source": "merchant_map"
             }
+            opik_context.update_current_span(metadata={
+                "category": known_category,
+                "confidence": 0.95,
+                "source": "merchant_map"
+            })
+            return result
         
         # Step 2: LLM categorization (first attempt)
         prompt = build_categorization_prompt(transaction, user_context)
@@ -194,55 +211,87 @@ class LLMClient:
                 except json.JSONDecodeError:
                     pass
         
-        return {
+        result = {
             "category": category,
             "confidence": confidence,
             "source": "llm"
         }
+        opik_context.update_current_span(metadata={
+            "category": category,
+            "confidence": confidence,
+            "source": "llm"
+        })
+        return result
 
     # =========================================================================
     # ANOMALY DETECTION
     # =========================================================================
     
-    @opik.track(name="detect_anomaly")
+    @opik.track(name="detect_anomaly", tags=["anomaly", "core", "transaction"])
     async def detect_anomaly(
         self,
         transaction: Dict[str, Any],
         user_stats: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Detect if transaction is unusual for this user."""
+        from opik import opik_context
+        
+        # Log input metadata
+        opik_context.update_current_span(metadata={
+            "amount": transaction.get("amount"),
+            "category": transaction.get("category"),
+            "merchant": transaction.get("merchant"),
+            "category_avg": user_stats.get("category_avg"),
+            "model": self.model
+        })
+        
         prompt = build_anomaly_detection_prompt(transaction, user_stats)
         response = await self._complete(prompt, temperature=0.3)
         
         try:
             result = json.loads(response)
-            return {
+            output = {
                 "is_anomaly": result.get("is_anomaly", False),
                 "severity": result.get("severity"),
                 "reason": result.get("reason")
             }
         except json.JSONDecodeError:
-            return {"is_anomaly": False, "severity": None, "reason": None}
+            output = {"is_anomaly": False, "severity": None, "reason": None}
+        
+        # Log output metadata
+        opik_context.update_current_span(metadata={
+            "is_anomaly": output["is_anomaly"],
+            "severity": output.get("severity")
+        })
+        return output
 
     # =========================================================================
     # VOICE PARSING
     # =========================================================================
     
-    @opik.track(name="parse_voice_input")
+    @opik.track(name="parse_voice_input", tags=["voice", "input", "parsing"])
     async def parse_voice_input(
         self,
         transcript: str,
         user_context: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Parse voice transcript to structured transaction."""
+        from opik import opik_context
+        
+        # Log input metadata
+        opik_context.update_current_span(metadata={
+            "transcript_length": len(transcript),
+            "transcript_preview": transcript[:100],
+            "model": self.model,
+            "has_user_context": user_context is not None
+        })
+        
         prompt = build_voice_parsing_prompt(transcript, user_context)
         response = await self._complete(prompt, temperature=0.5)
         
         try:
             result = json.loads(response)
-            
-            # Validate and clean
-            return {
+            output = {
                 "amount": result.get("amount", 0),
                 "merchant": result.get("merchant"),
                 "category": result.get("category", "other"),
@@ -251,7 +300,7 @@ class LLMClient:
                 "clarification_question": result.get("clarification_question")
             }
         except json.JSONDecodeError:
-            return {
+            output = {
                 "amount": 0,
                 "merchant": None,
                 "category": "other",
@@ -259,10 +308,30 @@ class LLMClient:
                 "needs_clarification": True,
                 "clarification_question": "Could not parse voice input. Please try again."
             }
+        
+        # Log output metadata
+        opik_context.update_current_span(metadata={
+            "parsed_amount": output["amount"],
+            "parsed_category": output["category"],
+            "confidence": output["confidence"],
+            "needs_clarification": output["needs_clarification"]
+        })
+        return output
 
-    @opik.track(name="transcribe_audio")
+    @opik.track(name="transcribe_audio", tags=["voice", "whisper", "transcription"])
     async def transcribe_audio(self, file_path: str) -> str:
         """Transcribe audio file using Whisper."""
+        from opik import opik_context
+        import os
+        
+        # Log input metadata
+        file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+        opik_context.update_current_span(metadata={
+            "file_path": file_path,
+            "file_size_bytes": file_size,
+            "model": "whisper-1"
+        })
+        
         try:
             with open(file_path, "rb") as audio_file:
                 transcript = await self.client.audio.transcriptions.create(
@@ -270,8 +339,18 @@ class LLMClient:
                     file=audio_file,
                     response_format="text"
                 )
+            
+            # Log output metadata
+            opik_context.update_current_span(metadata={
+                "transcript_length": len(transcript),
+                "success": True
+            })
             return transcript
         except Exception as e:
+            opik_context.update_current_span(metadata={
+                "success": False,
+                "error": str(e)
+            })
             print(f"Transcription failed: {e}")
             raise e
 
@@ -280,7 +359,7 @@ class LLMClient:
     # CHAT
     # =========================================================================
     
-    @opik.track(name="chat")
+    @opik.track(name="chat", tags=["chat", "core", "conversation"])
     async def chat(
         self,
         message: str,
@@ -297,6 +376,17 @@ class LLMClient:
             transaction_data: Pre-formatted transaction data relevant to query
             conversation_history: Previous messages in conversation
         """
+        from opik import opik_context
+        
+        # Log input metadata
+        opik_context.update_current_span(metadata={
+            "message_length": len(message),
+            "message_preview": message[:100],
+            "has_transaction_data": transaction_data is not None,
+            "conversation_length": len(conversation_history) if conversation_history else 0,
+            "model": self.model
+        })
+        
         system_prompt = build_chat_system_prompt(user_context)
         
         # Add transaction data if provided (from DB query, not search)
@@ -316,13 +406,21 @@ class LLMClient:
             temperature=0.7,
         )
         
-        return response.choices[0].message.content
+        response_text = response.choices[0].message.content
+        
+        # Log output metadata
+        opik_context.update_current_span(metadata={
+            "response_length": len(response_text) if response_text else 0,
+            "tokens_used": response.usage.total_tokens if response.usage else None
+        })
+        
+        return response_text
 
     # =========================================================================
     # WEEKLY INSIGHTS
     # =========================================================================
     
-    @opik.track(name="generate_weekly_insights")
+    @opik.track(name="generate_weekly_insights", tags=["insights", "weekly", "digest"])
     async def generate_weekly_insights(
         self,
         user_context: Dict[str, Any],
@@ -330,6 +428,18 @@ class LLMClient:
         last_week_total: float = 0
     ) -> Dict[str, Any]:
         """Generate weekly spending insights."""
+        from opik import opik_context
+        
+        this_week_total = sum(t.get('amount', 0) for t in transactions)
+        
+        # Log input metadata
+        opik_context.update_current_span(metadata={
+            "transaction_count": len(transactions),
+            "this_week_total": this_week_total,
+            "last_week_total": last_week_total,
+            "model": self.model
+        })
+        
         prompt = build_weekly_insights_prompt(
             user_context, 
             transactions, 
@@ -338,28 +448,51 @@ class LLMClient:
         response = await self._complete(prompt, temperature=0.7)
         
         try:
-            return json.loads(response)
+            result = json.loads(response)
         except json.JSONDecodeError:
-            return {
+            result = {
                 "headline": "Your week in review",
                 "summary": "Unable to generate summary.",
                 "tip": "Keep tracking your expenses!"
             }
+        
+        # Log output metadata
+        opik_context.update_current_span(metadata={
+            "headline": result.get("headline", "")[:50],
+            "has_tip": "tip" in result
+        })
+        return result
 
     # =========================================================================
     # MEMORY EXTRACTION
     # =========================================================================
     
-    @opik.track(name="extract_memory")
+    @opik.track(name="extract_memory", tags=["memory", "chat", "extraction"])
     async def extract_memory(self, message: str) -> Dict[str, Any]:
         """Extract facts to remember from user message."""
+        from opik import opik_context
+        
+        # Log input metadata
+        opik_context.update_current_span(metadata={
+            "message_length": len(message),
+            "message_preview": message[:100],
+            "model": self.model
+        })
+        
         prompt = build_memory_extraction_prompt(message)
         response = await self._complete(prompt, temperature=0.3)
         
         try:
-            return json.loads(response)
+            result = json.loads(response)
         except json.JSONDecodeError:
-            return {"has_fact": False, "fact": None, "category": None}
+            result = {"has_fact": False, "fact": None, "category": None}
+        
+        # Log output metadata
+        opik_context.update_current_span(metadata={
+            "has_fact": result.get("has_fact", False),
+            "fact_category": result.get("category")
+        })
+        return result
 
 
 # Singleton instance

@@ -54,7 +54,7 @@ class TransactionAgent:
         self.context = context_manager
         self.llm = llm_client
     
-    @opik.track(name="transaction_agent_process")
+    @opik.track(name="transaction_agent_process", tags=["agent", "transaction", "pipeline"])
     async def process(
         self, 
         user_id: str, 
@@ -72,7 +72,9 @@ class TransactionAgent:
         opik_context.update_current_span(metadata={
             "user_id": user_id,
             "amount": transaction.get("amount"),
-            "merchant": transaction.get("merchant")
+            "merchant": transaction.get("merchant"),
+            "timestamp": transaction.get("timestamp"),
+            "pipeline_step": "start"
         })
         # Load user context for categorization
         user_context = await self.context.load_full_context(user_id)
@@ -108,7 +110,7 @@ class TransactionAgent:
             confidence
         )
         
-        return ProcessedTransaction(
+        result = ProcessedTransaction(
             transaction_id=transaction.get("id", str(uuid.uuid4())),
             amount=transaction["amount"],
             merchant=transaction.get("merchant"),
@@ -120,6 +122,17 @@ class TransactionAgent:
             notification_needed=notification_needed,
             notification_type=notification_type
         )
+        
+        # Log final output metadata
+        opik_context.update_current_span(metadata={
+            "pipeline_step": "complete",
+            "final_category": category,
+            "category_confidence": confidence,
+            "is_anomaly": anomaly["is_anomaly"],
+            "notification_type": notification_type
+        })
+        
+        return result
     
     async def _check_budget_impact(
         self,
@@ -196,7 +209,7 @@ class ChatAgent:
         self.context = context_manager
         self.llm = llm_client
     
-    @opik.track(name="chat_agent_handle")
+    @opik.track(name="chat_agent_handle", tags=["agent", "chat", "conversation"])
     async def handle(
         self,
         user_id: str,
@@ -211,6 +224,16 @@ class ChatAgent:
             message: User's message
             conversation_history: Previous messages for context
         """
+        from opik import opik_context
+        
+        # Log input metadata
+        opik_context.update_current_span(metadata={
+            "user_id": user_id,
+            "message_length": len(message),
+            "has_history": conversation_history is not None,
+            "history_length": len(conversation_history) if conversation_history else 0
+        })
+        
         # Load full user context
         user_context = await self.context.load_full_context(user_id)
         
@@ -236,11 +259,20 @@ class ChatAgent:
             await self.context.add_memory_fact(user_id, new_fact, category)
             memory_updated = True
         
-        return ChatResponse(
+        result = ChatResponse(
             response=response,
             memory_updated=memory_updated,
             new_fact=new_fact
         )
+        
+        # Log output metadata
+        opik_context.update_current_span(metadata={
+            "response_length": len(response) if response else 0,
+            "memory_updated": memory_updated,
+            "has_new_fact": new_fact is not None
+        })
+        
+        return result
     
     async def _get_relevant_data(
         self, 
@@ -305,12 +337,20 @@ class InsightAgent:
         self.context = context_manager
         self.llm = llm_client
     
-    @opik.track(name="insight_agent_weekly_digest")
+    @opik.track(name="insight_agent_weekly_digest", tags=["agent", "insights", "weekly"])
     async def generate_weekly_digest(
         self, 
         user_id: str
     ) -> Dict[str, Any]:
         """Generate weekly spending insights."""
+        from opik import opik_context
+        
+        # Log input metadata
+        opik_context.update_current_span(metadata={
+            "user_id": user_id,
+            "digest_type": "weekly"
+        })
+        
         # Load context
         user_context = await self.context.load_full_context(user_id)
         
@@ -320,6 +360,8 @@ class InsightAgent:
         # Get last week's total for comparison
         # TODO: Implement proper date range query
         last_week_total = 0  # Placeholder
+        
+        this_week_total = sum(t.get('amount', 0) for t in transactions)
         
         # Generate insights
         insights = await self.llm.generate_weekly_insights(
@@ -338,6 +380,13 @@ class InsightAgent:
         )
         await self.context.add_insight(user_id, insight)
         
+        # Log output metadata
+        opik_context.update_current_span(metadata={
+            "transaction_count": len(transactions),
+            "this_week_total": this_week_total,
+            "headline": insights.get("headline", "")[:50]
+        })
+        
         return insights
 
 
@@ -355,13 +404,23 @@ class AlertAgent:
     def __init__(self, context_manager: ContextManager):
         self.context = context_manager
     
-    @opik.track(name="alert_agent_check")
+    @opik.track(name=\"alert_agent_check\", tags=[\"agent\", \"alerts\", \"monitoring\"])
     async def check_alerts(
         self,
         user_id: str,
         transaction: ProcessedTransaction
     ) -> List[Dict[str, Any]]:
         """Check if transaction warrants any alerts."""
+        from opik import opik_context
+        
+        # Log input metadata
+        opik_context.update_current_span(metadata={
+            "user_id": user_id,
+            "transaction_amount": transaction.amount,
+            "transaction_category": transaction.category,
+            "is_anomaly": transaction.is_anomaly
+        })
+        
         alerts = []
         
         user_context = await self.context.load_full_context(user_id)
@@ -421,6 +480,12 @@ class AlertAgent:
                         "message": f"Heads up: You mentioned wanting to reduce {transaction.category} spending"
                     })
                     break
+        
+        # Log output metadata
+        opik_context.update_current_span(metadata={
+            "alert_count": len(alerts),
+            "alert_types": [a["type"] for a in alerts]
+        })
         
         return alerts
 

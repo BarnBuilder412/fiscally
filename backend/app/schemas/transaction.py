@@ -83,11 +83,25 @@ class TransactionResponse(BaseModel):
     ai_category_confidence: Optional[str] = None
     is_anomaly: bool = False
     anomaly_reason: Optional[str] = None
+    opik_trace_id: Optional[str] = None  # Opik trace ID for feedback logging
     transaction_at: datetime
     created_at: datetime
     
     class Config:
         from_attributes = True
+
+
+class CategoryCorrectionRequest(BaseModel):
+    """Request to correct a transaction category (logs feedback to Opik)."""
+    new_category: str = Field(..., description="The corrected category")
+    
+    @field_validator("new_category")
+    @classmethod
+    def validate_category(cls, v: str) -> str:
+        """Validate that the new category is valid."""
+        if v not in VALID_CATEGORIES:
+            raise ValueError(f"Invalid category. Must be one of: {', '.join(VALID_CATEGORIES)}")
+        return v
 
 
 class TransactionListResponse(BaseModel):
