@@ -18,6 +18,7 @@ import {
     BorderRadius,
 } from '@/constants/theme';
 import { eventBus, Events } from '@/services/eventBus';
+import { api } from '@/services/api';
 import { GoalDetailForm, GoalDetailData } from '@/components/GoalDetailForm';
 
 const SAVINGS_GOALS = [
@@ -78,8 +79,28 @@ export default function GoalsPreferencesScreen() {
 
     const saveGoals = async () => {
         setSaving(true);
+
+        // Save locally
         await AsyncStorage.setItem('user_goals', JSON.stringify(selectedGoals));
         await AsyncStorage.setItem('user_goal_details', JSON.stringify(goalDetails));
+
+        // Sync to backend for goal progress tracking
+        try {
+            const goalsToSync = selectedGoals.map(goalId => {
+                const details = goalDetails[goalId] || {};
+                const goalInfo = SAVINGS_GOALS.find(g => g.id === goalId);
+                return {
+                    id: goalId,
+                    label: goalInfo?.label || goalId,
+                    target_amount: details.amount || undefined,
+                    target_date: details.date || undefined,
+                };
+            });
+            await api.syncGoals(goalsToSync);
+        } catch (error) {
+            console.warn('Failed to sync goals to backend:', error);
+        }
+
         eventBus.emit(Events.PREFERENCES_CHANGED);
         setSaving(false);
         router.back();

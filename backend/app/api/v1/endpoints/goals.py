@@ -11,6 +11,7 @@ from datetime import datetime
 
 from app.api.deps import CurrentUser, get_db
 from app.ai.context_manager import ContextManager
+from sqlalchemy.orm import Session
 
 router = APIRouter()
 context_manager = ContextManager()
@@ -121,7 +122,7 @@ async def get_budget_analysis(
 @router.get("/progress")
 async def get_goal_progress(
     current_user: CurrentUser,
-    db: "Session" = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Get real-time goal progress based on salary, expenses, and priorities.
@@ -177,7 +178,7 @@ async def save_to_goal(
     goal_id: str,
     amount: float,
     current_user: CurrentUser,
-    db: "Session" = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Record a savings contribution to a specific goal.
