@@ -194,7 +194,15 @@ export default function HomeScreen() {
     summary?: string;
     tip?: string;
   } | null>(null);
-  const [agenticMessage, setAgenticMessage] = useState<string>('');
+  const [goalProgress, setGoalProgress] = useState<{
+    monthly_salary: number;
+    monthly_budget: number;
+    monthly_expenses: number;
+    monthly_savings: number;
+    budget_used_percentage: number;
+    goals: any[];
+    tip?: string;
+  } | null>(null);
 
   const loadData = async () => {
     try {
@@ -207,9 +215,10 @@ export default function HomeScreen() {
       setIsAuthenticated(true);
 
       // Load transactions and user preferences
-      const [txnResponse, insightsData, storedGoals, storedBudget, storedGoalDetails] = await Promise.all([
+      const [txnResponse, insightsData, goalProgressData, storedGoals, storedBudget, storedGoalDetails] = await Promise.all([
         api.getTransactions({ limit: 50 }).catch(() => ({ transactions: [] })),
         api.getInsights().catch(() => null),
+        api.getGoalProgress().catch(() => null),
         AsyncStorage.getItem('user_goals'),
         AsyncStorage.getItem('user_budget'),
         AsyncStorage.getItem('user_goal_details'),
@@ -218,6 +227,7 @@ export default function HomeScreen() {
       const txns = txnResponse?.transactions || [];
       setTransactions(Array.isArray(txns) ? txns : []);
       setInsights(insightsData);
+      setGoalProgress(goalProgressData);
       setUserGoals(storedGoals ? JSON.parse(storedGoals) : []);
       setUserBudget(storedBudget);
       setUserGoalDetails(storedGoalDetails ? JSON.parse(storedGoalDetails) : {});
@@ -307,29 +317,43 @@ export default function HomeScreen() {
   const daysRemaining = daysInMonth - currentDay;
   const remainingBudget = Math.max(budget - monthlySpent, 0);
 
-  // Goal data based on user selections
-  const goalData = [
-    { id: 'emergency', label: 'Emergency Fund', icon: 'shield-checkmark', color: '#22C55E' },
-    { id: 'vacation', label: 'Vacation', icon: 'airplane', color: '#3B82F6' },
-    { id: 'investment', label: 'Investment', icon: 'trending-up', color: '#8B5CF6' },
-    { id: 'gadget', label: 'New Gadget', icon: 'phone-portrait', color: '#EC4899' },
-    { id: 'home', label: 'Home/Rent', icon: 'home', color: '#F59E0B' },
-    { id: 'education', label: 'Education', icon: 'school', color: '#06B6D4' },
-    { id: 'vehicle', label: 'Vehicle', icon: 'car', color: '#EF4444' },
-    { id: 'wedding', label: 'Wedding', icon: 'heart', color: '#F472B6' },
-  ]
-    .filter(g => userGoals.includes(g.id))
-    .map(g => {
-      const details = userGoalDetails[g.id];
-      const target = details?.amount ? parseInt(details.amount.replace(/[^0-9]/g, '')) : 50000;
-      // TODO: Implement transaction tagging to calculate actual current saved amount.
-      // For now, default to 0 to respect accuracy of user data.
-      return {
-        ...g,
-        target,
-        current: 0
-      };
-    });
+  // Goal data - use real API data if available, fallback to local
+  const goalData = goalProgress?.goals?.length
+    ? goalProgress.goals.map(g => ({
+      id: g.id,
+      label: g.label,
+      icon: g.icon || 'flag',
+      color: g.color || Colors.primary,
+      target: g.target_amount,
+      current: g.current_saved,
+      monthlyContribution: g.monthly_contribution,
+      progressPercentage: g.progress_percentage,
+      onTrack: g.on_track,
+      projectedDate: g.projected_completion_date,
+    }))
+    : [
+      { id: 'emergency', label: 'Emergency Fund', icon: 'shield-checkmark', color: '#22C55E' },
+      { id: 'vacation', label: 'Vacation', icon: 'airplane', color: '#3B82F6' },
+      { id: 'investment', label: 'Investment', icon: 'trending-up', color: '#8B5CF6' },
+      { id: 'gadget', label: 'New Gadget', icon: 'phone-portrait', color: '#EC4899' },
+      { id: 'home', label: 'Home/Rent', icon: 'home', color: '#F59E0B' },
+      { id: 'education', label: 'Education', icon: 'school', color: '#06B6D4' },
+      { id: 'vehicle', label: 'Vehicle', icon: 'car', color: '#EF4444' },
+      { id: 'wedding', label: 'Wedding', icon: 'heart', color: '#F472B6' },
+    ]
+      .filter(g => userGoals.includes(g.id))
+      .map(g => {
+        const details = userGoalDetails[g.id];
+        const target = details?.amount ? parseInt(details.amount.replace(/[^0-9]/g, '')) : 50000;
+        return {
+          ...g,
+          target,
+          current: 0,
+          monthlyContribution: 0,
+          progressPercentage: 0,
+          onTrack: true,
+        };
+      });
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {

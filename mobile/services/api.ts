@@ -251,6 +251,65 @@ class ApiClient {
     return this.request('/api/v1/goals/budget-analysis');
   }
 
+  async getGoalProgress(): Promise<{
+    monthly_salary: number;
+    monthly_budget: number;
+    monthly_expenses: number;
+    monthly_savings: number;
+    budget_used_percentage: number;
+    expected_savings: number;
+    savings_vs_expected: number;
+    transaction_count: number;
+    expenses_by_category: Record<string, number>;
+    goals: Array<{
+      id: string;
+      label: string;
+      icon?: string;
+      color?: string;
+      priority: number;
+      target_amount: number;
+      target_date?: string;
+      current_saved: number;
+      amount_needed: number;
+      monthly_contribution: number;
+      progress_percentage: number;
+      months_to_complete?: number;
+      projected_completion_date?: string;
+      on_track: boolean;
+    }>;
+    total_goal_target: number;
+    total_current_saved: number;
+    unallocated_savings: number;
+    tip?: string;
+  }> {
+    return this.request('/api/v1/goals/progress');
+  }
+
+  async saveToGoal(goalId: string, amount: number): Promise<{
+    message: string;
+    goal_id: string;
+  }> {
+    return this.request(`/api/v1/goals/save-amount?goal_id=${goalId}&amount=${amount}`, {
+      method: 'POST',
+    });
+  }
+
+  async updateFinancialProfile(data: {
+    salary_range_id?: string;
+    monthly_salary?: number;
+    budget_range_id?: string;
+    monthly_budget?: number;
+  }): Promise<User> {
+    return this.request('/api/v1/profile', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        profile: {
+          financial: data,
+        },
+      }),
+    });
+  }
+
   // Helper to check if user is authenticated
   async isAuthenticated(): Promise<boolean> {
     const token = await this.getAccessToken();

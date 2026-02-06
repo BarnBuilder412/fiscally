@@ -548,3 +548,272 @@ class ContextManager:
             lines.append(f"  - {cat}: ₹{amount:,}")
         
         return "\n".join(lines)
+
+    # =========================================================================
+    # GOAL PROGRESS TRACKING (Salary + Budget + Goals Integration)
+    # =========================================================================
+    
+    # Salary range ID to approximate monthly salary amount mapping
+    SALARY_RANGES = {
+        "below_30k": 25000,
+        "30k_75k": 52500,
+        "75k_150k": 112500,
+        "above_150k": 200000,
+        "prefer_not": None,
+    }
+    
+    # Budget range ID to approximate budget amount mapping
+    BUDGET_RANGES = {
+        "below_20k": 15000,
+        "20k_40k": 30000,
+        "40k_70k": 55000,
+        "70k_100k": 85000,
+        "above_100k": 120000,
+    }
+    
+    async def load_financial_profile(self, user_id: str) -> Dict[str, Any]:
+        """
+        Load user's financial profile including salary and budget.
+        
+        Returns:
+            Dict with monthly_salary, monthly_budget, salary_range_id, budget_range_id
+        """
+        user = self._get_user(user_id)
+        if not user or not user.profile:
+            return {
+                "monthly_salary": None,
+                "monthly_budget": None,
+                "salary_range_id": None,
+                "budget_range_id": None,
+            }
+        
+        profile = user.profile
+        financial = profile.get("financial", {})
+        
+        # Get explicit amounts or derive from range IDs
+        salary_range_id = financial.get("salary_range_id")
+        budget_range_id = financial.get("budget_range_id")
+        
+        monthly_salary = financial.get("monthly_salary")
+        if monthly_salary is None and salary_range_id:
+            monthly_salary = self.SALARY_RANGES.get(salary_range_id)
+        
+        monthly_budget = financial.get("monthly_budget")
+        if monthly_budget is None and budget_range_id:
+            monthly_budget = self.BUDGET_RANGES.get(budget_range_id)
+        
+        return {
+            "monthly_salary": monthly_salary,
+            "monthly_budget": monthly_budget,
+            "salary_range_id": salary_range_id,
+            "budget_range_id": budget_range_id,
+        }
+    
+    async def calculate_monthly_savings(self, user_id: str) -> Dict[str, Any]:
+        """
+        Calculate monthly savings based on salary and actual expenses.
+        
+        Returns:
+            Dict with:
+                - monthly_salary: user's monthly income
+                - monthly_budget: target spending limit
+                - monthly_expenses: actual spending this month
+                - monthly_savings: salary - expenses (available for goals)
+                - budget_used_percentage: expenses / budget * 100
+                - savings_vs_target: comparison with expected savings (salary - budget)
+        """
+        # Get financial profile
+        financial = await self.load_financial_profile(user_id)
+        monthly_salary = financial.get("monthly_salary") or 0
+        monthly_budget = financial.get("monthly_budget") or 0
+        
+        # Get current month's spending
+        spending = await self.get_spending_summary(user_id, "month")
+        monthly_expenses = spending.get("total", 0)
+        
+        # Calculate savings
+        monthly_savings = max(0, monthly_salary - monthly_expenses)
+        
+        # Calculate budget usage
+        budget_used_percentage = 0
+        if monthly_budget > 0:
+            budget_used_percentage = (monthly_expenses / monthly_budget) * 100
+        
+        # Expected savings if user stuck to budget
+        expected_savings = max(0, monthly_salary - monthly_budget) if monthly_budget > 0 else 0
+        
+        return {
+            "monthly_salary": monthly_salary,
+            "monthly_budget": monthly_budget,
+            "monthly_expenses": monthly_expenses,
+            "monthly_savings": monthly_savings,
+            "budget_used_percentage": round(budget_used_percentage, 1),
+            "expected_savings": expected_savings,
+            "savings_vs_expected": monthly_savings - expected_savings,
+            "transaction_count": spending.get("transaction_count", 0),
+            "expenses_by_category": spending.get("by_category", {}),
+        }
+    
+    async def calculate_goal_progress(self, user_id: str) -> Dict[str, Any]:
+        """
+        Calculate real-time progress for all user goals.
+        
+        Uses:
+        - Monthly savings (salary - expenses)
+        - Goal priorities to distribute savings
+        - Target amounts and dates
+        
+        Returns:
+            Dict with savings info and list of goals with progress details
+        """
+        # Get savings calculation
+        savings_data = await self.calculate_monthly_savings(user_id)
+        monthly_savings = savings_data.get("monthly_savings", 0)
+        
+        # Get user goals
+        goals = await self.load_goals(user_id)
+        
+        if not goals:
+            return {
+                **savings_data,
+                "goals": [],
+                "total_goal_target": 0,
+                "total_current_saved": 0,
+            }
+        
+        # Sort goals by priority (lower number = higher priority)
+        # If no priority set, use order in list
+        sorted_goals = sorted(
+            goals, 
+            key=lambda g: (g.get("priority", 999), goals.index(g))
+        )
+        
+        # Distribute monthly savings across goals by priority
+        remaining_savings = monthly_savings
+        goal_progress = []
+        total_target = 0
+        total_saved = 0
+        
+        for goal in sorted_goals:
+            goal_id = goal.get("id", "")
+            label = goal.get("label", goal_id)
+            
+            # Parse target amount
+            target_str = goal.get("target_amount", "0")
+            try:
+                target_amount = float(str(target_str).replace(",", "").replace("₹", ""))
+            except (ValueError, TypeError):
+                target_amount = 0
+            
+            total_target += target_amount
+            
+            # Current saved amount (starts at 0, updated as user tracks)
+            current_saved = goal.get("current_saved", 0)
+            total_saved += current_saved
+            
+            # Amount still needed
+            amount_needed = max(0, target_amount - current_saved)
+            
+            # Monthly contribution from available savings
+            # Higher priority goals get first claim on savings
+            monthly_contribution = min(remaining_savings, amount_needed / 12) if amount_needed > 0 else 0
+            remaining_savings = max(0, remaining_savings - monthly_contribution)
+            
+            # Calculate progress percentage
+            progress_percentage = 0
+            if target_amount > 0:
+                progress_percentage = min(100, (current_saved / target_amount) * 100)
+            
+            # Calculate projected completion
+            projected_completion_date = None
+            months_to_complete = None
+            on_track = True
+            
+            if amount_needed > 0 and monthly_contribution > 0:
+                months_to_complete = int(amount_needed / monthly_contribution)
+                from datetime import datetime
+                projected_date = datetime.now()
+                projected_date = projected_date.replace(
+                    month=(projected_date.month + months_to_complete - 1) % 12 + 1,
+                    year=projected_date.year + (projected_date.month + months_to_complete - 1) // 12
+                )
+                projected_completion_date = projected_date.strftime("%Y-%m-%d")
+                
+                # Check if on track for deadline
+                target_date_str = goal.get("target_date")
+                if target_date_str:
+                    try:
+                        target_date = datetime.strptime(target_date_str, "%Y-%m-%d")
+                        on_track = projected_date <= target_date
+                    except ValueError:
+                        pass
+            
+            goal_progress.append({
+                "id": goal_id,
+                "label": label,
+                "icon": goal.get("icon"),
+                "color": goal.get("color"),
+                "priority": goal.get("priority", 999),
+                "target_amount": target_amount,
+                "target_date": goal.get("target_date"),
+                "current_saved": current_saved,
+                "amount_needed": amount_needed,
+                "monthly_contribution": round(monthly_contribution, 2),
+                "progress_percentage": round(progress_percentage, 1),
+                "months_to_complete": months_to_complete,
+                "projected_completion_date": projected_completion_date,
+                "on_track": on_track,
+            })
+        
+        return {
+            **savings_data,
+            "goals": goal_progress,
+            "total_goal_target": total_target,
+            "total_current_saved": total_saved,
+            "unallocated_savings": round(remaining_savings, 2),
+        }
+    
+    async def update_financial_profile(
+        self, 
+        user_id: str, 
+        salary_range_id: Optional[str] = None,
+        monthly_salary: Optional[int] = None,
+        budget_range_id: Optional[str] = None,
+        monthly_budget: Optional[int] = None,
+    ) -> None:
+        """Update user's financial profile (salary, budget)."""
+        user = self._get_user(user_id)
+        if user:
+            profile = user.profile or {}
+            financial = profile.get("financial", {})
+            
+            if salary_range_id is not None:
+                financial["salary_range_id"] = salary_range_id
+            if monthly_salary is not None:
+                financial["monthly_salary"] = monthly_salary
+            if budget_range_id is not None:
+                financial["budget_range_id"] = budget_range_id
+            if monthly_budget is not None:
+                financial["monthly_budget"] = monthly_budget
+            
+            profile["financial"] = financial
+            user.profile = profile
+            self.db.commit()
+    
+    async def update_goal_saved_amount(
+        self, 
+        user_id: str, 
+        goal_id: str, 
+        amount_to_add: float
+    ) -> None:
+        """Add to a goal's current saved amount."""
+        user = self._get_user(user_id)
+        if user and user.goals:
+            active = user.goals.get("active_goals", [])
+            for goal in active:
+                if goal.get("id") == goal_id:
+                    current = goal.get("current_saved", 0)
+                    goal["current_saved"] = current + amount_to_add
+                    break
+            user.goals["active_goals"] = active
+            self.db.commit()

@@ -19,6 +19,7 @@ import {
 } from '@/constants/theme';
 import { INCOME_RANGES } from '@/constants';
 import { eventBus, Events } from '@/services/eventBus';
+import { api } from '@/services/api';
 
 export default function IncomePreferencesScreen() {
     const router = useRouter();
@@ -38,7 +39,26 @@ export default function IncomePreferencesScreen() {
     const saveIncome = async () => {
         if (!selectedIncome) return;
         setSaving(true);
+
+        // Save locally
         await AsyncStorage.setItem('user_income', selectedIncome);
+
+        // Sync to backend for goal progress calculations
+        try {
+            const salaryMap: Record<string, number> = {
+                'below_30k': 25000,
+                '30k_75k': 52500,
+                '75k_150k': 112500,
+                'above_150k': 200000,
+            };
+            await api.updateFinancialProfile({
+                salary_range_id: selectedIncome,
+                monthly_salary: salaryMap[selectedIncome] || undefined,
+            });
+        } catch (error) {
+            console.warn('Failed to sync income to backend:', error);
+        }
+
         eventBus.emit(Events.PREFERENCES_CHANGED);
         setSaving(false);
         router.back();

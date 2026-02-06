@@ -18,6 +18,7 @@ import {
     BorderRadius,
 } from '@/constants/theme';
 import { eventBus, Events } from '@/services/eventBus';
+import { api } from '@/services/api';
 
 const BUDGET_RANGES = [
     { id: 'below_20k', label: 'Below ₹20,000', description: 'Tight budget, focus on essentials' },
@@ -45,7 +46,27 @@ export default function BudgetPreferencesScreen() {
     const saveBudget = async () => {
         if (!selectedBudget) return;
         setSaving(true);
+
+        // Save locally
         await AsyncStorage.setItem('user_budget', selectedBudget);
+
+        // Sync to backend for goal progress calculations
+        try {
+            const budgetMap: Record<string, number> = {
+                'below_20k': 15000,
+                '20k_40k': 30000,
+                '40k_70k': 55000,
+                '70k_100k': 85000,
+                'above_100k': 120000,
+            };
+            await api.updateFinancialProfile({
+                budget_range_id: selectedBudget,
+                monthly_budget: budgetMap[selectedBudget] || undefined,
+            });
+        } catch (error) {
+            console.warn('Failed to sync budget to backend:', error);
+        }
+
         eventBus.emit(Events.PREFERENCES_CHANGED);
         setSaving(false);
         router.back();

@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 
-from app.api.deps import CurrentUser
+from app.api.deps import CurrentUser, get_db
 from app.ai.context_manager import ContextManager
 
 router = APIRouter()
@@ -116,3 +116,79 @@ async def get_budget_analysis(
         "goals": recommendations,
         "tip": f"To reach your goals, aim to save ₹{total_monthly_savings:,} per month."
     }
+
+
+@router.get("/progress")
+async def get_goal_progress(
+    current_user: CurrentUser,
+    db: "Session" = Depends(get_db)
+):
+    """
+    Get real-time goal progress based on salary, expenses, and priorities.
+    
+    This endpoint calculates:
+    - Monthly savings = Salary - Actual Expenses
+    - Goal progress based on priorities
+    - Projected completion dates
+    - On-track status vs deadlines
+    
+    Returns:
+        - monthly_salary: user's income
+        - monthly_budget: spending limit
+        - monthly_expenses: actual spending
+        - monthly_savings: available for goals
+        - budget_used_percentage: expenses/budget
+        - goals: list of goals with progress details
+    """
+    from app.ai.context_manager import ContextManager
+    from sqlalchemy.orm import Session
+    
+    user_id = str(current_user.id)
+    ctx = ContextManager(db)
+    
+    # Calculate full goal progress
+    progress = await ctx.calculate_goal_progress(user_id)
+    
+    # Add helpful tip based on savings
+    monthly_savings = progress.get("monthly_savings", 0)
+    goals = progress.get("goals", [])
+    
+    tip = None
+    if monthly_savings == 0:
+        tip = "Set your income in preferences to see goal projections."
+    elif len(goals) == 0:
+        tip = "Add savings goals to track your progress."
+    elif monthly_savings > 0:
+        on_track_count = sum(1 for g in goals if g.get("on_track", True))
+        if on_track_count == len(goals):
+            tip = f"Great! You're on track for all {len(goals)} goal(s). Keep it up! 🎉"
+        else:
+            behind_goals = [g["label"] for g in goals if not g.get("on_track", True)]
+            tip = f"You're behind on: {', '.join(behind_goals[:2])}. Consider increasing savings."
+    
+    return {
+        **progress,
+        "tip": tip,
+    }
+
+
+@router.post("/save-amount")
+async def save_to_goal(
+    goal_id: str,
+    amount: float,
+    current_user: CurrentUser,
+    db: "Session" = Depends(get_db)
+):
+    """
+    Record a savings contribution to a specific goal.
+    
+    Use this when user manually allocates savings to a goal.
+    """
+    from app.ai.context_manager import ContextManager
+    
+    user_id = str(current_user.id)
+    ctx = ContextManager(db)
+    
+    await ctx.update_goal_saved_amount(user_id, goal_id, amount)
+    
+    return {"message": f"Added ₹{amount:,.0f} to goal", "goal_id": goal_id}
