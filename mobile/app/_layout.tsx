@@ -1,21 +1,53 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Stack, useRouter } from 'expo-router';
 import { TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { Colors, Spacing } from '@/constants/theme';
+import { AnimatedSplash } from '@/components/AnimatedSplash';
 import '../global.css';
 
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const router = useRouter();
+  const [isAppReady, setIsAppReady] = useState(false);
+  const [isSplashAnimationFinished, setIsSplashAnimationFinished] = useState(false);
 
   useEffect(() => {
-    // Hide splash screen after mount
-    SplashScreen.hideAsync();
+    async function prepare() {
+      try {
+        // Pre-load fonts, make any API calls you need to do here
+        // await Font.loadAsync(Entypo.font);
+      } catch (e) {
+        console.warn(e);
+      } finally {
+        // Tell the application to render
+        setIsAppReady(true);
+      }
+    }
+
+    prepare();
   }, []);
+
+  useEffect(() => {
+    if (isAppReady) {
+      SplashScreen.hideAsync();
+    }
+  }, [isAppReady]);
+
+  if (!isAppReady) {
+    return null;
+  }
+
+  if (!isSplashAnimationFinished) {
+    return (
+      <AnimatedSplash
+        onFinish={() => setIsSplashAnimationFinished(true)}
+      />
+    );
+  }
 
   return (
     <>

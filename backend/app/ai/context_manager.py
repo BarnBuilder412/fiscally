@@ -137,11 +137,37 @@ class ContextManager:
         return {}
     
     async def load_goals(self, user_id: str) -> List[Dict[str, Any]]:
-        """Load active goals from JSONB."""
+        """Load active goals from JSONB with calculated monthly savings."""
+        from datetime import datetime
+        
         user = self._get_user(user_id)
-        if user and user.goals:
-            return user.goals.get("active_goals", [])
-        return []
+        if not user or not user.goals:
+            return []
+        
+        active_goals = user.goals.get("active_goals", [])
+        enriched_goals = []
+        
+        for goal in active_goals:
+            enriched = goal.copy()
+            
+            # Calculate monthly savings needed if target amount and date exist
+            target_amount = goal.get("target_amount")
+            target_date = goal.get("target_date")
+            
+            if target_amount and target_date:
+                try:
+                    target = datetime.strptime(target_date, "%Y-%m-%d")
+                    months_remaining = max(1, (target.year - datetime.now().year) * 12 + 
+                                          (target.month - datetime.now().month))
+                    amount = float(str(target_amount).replace(",", ""))
+                    enriched["monthly_savings_needed"] = round(amount / months_remaining)
+                    enriched["months_remaining"] = months_remaining
+                except (ValueError, TypeError):
+                    pass
+            
+            enriched_goals.append(enriched)
+        
+        return enriched_goals
     
     async def load_memory(self, user_id: str) -> Dict[str, Any]:
         """Load user memory (facts, conversation summary)."""
@@ -351,6 +377,15 @@ class ContextManager:
                     goal["current_amount"] = current_amount
                     break
             user.goals["active_goals"] = active
+            self.db.commit()
+    
+    async def save_goals(self, user_id: str, goals: List[Dict[str, Any]]) -> None:
+        """Save/replace all active goals from mobile sync."""
+        user = self._get_user(user_id)
+        if user:
+            if not user.goals:
+                user.goals = {}
+            user.goals["active_goals"] = goals
             self.db.commit()
 
     # =========================================================================

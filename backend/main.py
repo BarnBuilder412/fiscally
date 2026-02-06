@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.api.v1.router import api_router
+from app.core.responses import PrettyJSONResponse
 
 settings = get_settings()
 
@@ -11,6 +12,7 @@ app = FastAPI(
     version="0.1.0",
     docs_url="/docs" if settings.debug else None,
     redoc_url="/redoc" if settings.debug else None,
+    default_response_class=PrettyJSONResponse,
 )
 
 # CORS middleware for mobile app

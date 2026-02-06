@@ -10,3 +10,4 @@ export const INCOME_RANGES = [
   { id: 'above_150k', label: 'More than ₹1,50,000', value: '>1.5L' },
   { id: 'prefer_not', label: 'Prefer not to say', value: 'not_specified' },
 ];
+  

@@ -7,10 +7,14 @@ import {
   TouchableOpacity,
   Dimensions,
   TextInput,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   Colors,
@@ -22,10 +26,11 @@ import {
 } from '@/constants/theme';
 import { Button } from '@/components';
 import { INCOME_RANGES } from '@/constants';
+import { api } from '@/services/api';
 
 const { width } = Dimensions.get('window');
 
-type Step = 'welcome' | 'income' | 'budget' | 'goals' | 'sms' | 'complete';
+type Step = 'welcome' | 'income' | 'budget' | 'goals' | 'goal_details' | 'sms' | 'complete';
 
 const BUDGET_RANGES = [
   { id: 'below_20k', label: 'Less than ₹20,000' },
@@ -52,16 +57,20 @@ export default function OnboardingScreen() {
   const [selectedIncome, setSelectedIncome] = useState<string | null>(null);
   const [selectedBudget, setSelectedBudget] = useState<string | null>(null);
   const [selectedGoals, setSelectedGoals] = useState<string[]>([]);
+  const [goalDetails, setGoalDetails] = useState<Record<string, { amount: string, date: string }>>({});
+  const [currentGoalIndex, setCurrentGoalIndex] = useState(0);
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [smsEnabled, setSmsEnabled] = useState(false);
 
   const getStepNumber = () => {
     switch (step) {
-      case 'income': return { current: 1, total: 5 };
-      case 'budget': return { current: 2, total: 5 };
-      case 'goals': return { current: 3, total: 5 };
-      case 'sms': return { current: 4, total: 5 };
-      case 'complete': return { current: 5, total: 5 };
-      default: return { current: 0, total: 5 };
+      case 'income': return { current: 1, total: 6 };
+      case 'budget': return { current: 2, total: 6 };
+      case 'goals': return { current: 3, total: 6 };
+      case 'goal_details': return { current: 4, total: 6 };
+      case 'sms': return { current: 5, total: 6 };
+      case 'complete': return { current: 6, total: 6 };
+      default: return { current: 0, total: 6 };
     }
   };
 
@@ -78,7 +87,18 @@ export default function OnboardingScreen() {
     } else if (step === 'budget') {
       setStep('goals');
     } else if (step === 'goals') {
-      setStep('sms');
+      if (selectedGoals.length > 0) {
+        setStep('goal_details');
+        setCurrentGoalIndex(0);
+      } else {
+        setStep('sms');
+      }
+    } else if (step === 'goal_details') {
+      if (currentGoalIndex < selectedGoals.length - 1) {
+        setCurrentGoalIndex(prev => prev + 1);
+      } else {
+        setStep('sms');
+      }
     } else if (step === 'sms') {
       setStep('complete');
     }
@@ -91,24 +111,63 @@ export default function OnboardingScreen() {
       setStep('income');
     } else if (step === 'goals') {
       setStep('budget');
+    } else if (step === 'goal_details') {
+      if (currentGoalIndex > 0) {
+        setCurrentGoalIndex(prev => prev - 1);
+      } else {
+        setStep('goals');
+      }
     } else if (step === 'sms') {
-      setStep('goals');
+      if (selectedGoals.length > 0) {
+        setStep('goal_details');
+        setCurrentGoalIndex(selectedGoals.length - 1);
+      } else {
+        setStep('goals');
+      }
     }
   };
 
   const handleSkip = () => {
+    if (step === 'goal_details') {
+      // Skip current detail
+      if (currentGoalIndex < selectedGoals.length - 1) {
+        setCurrentGoalIndex(prev => prev + 1);
+      } else {
+        setStep('sms');
+      }
+      return;
+    }
     handleNext();
   };
 
   const handleComplete = async () => {
     try {
       await AsyncStorage.setItem('is_onboarded', 'true');
-      // Save budget and goals if needed
+      // Save budget and goals locally
       if (selectedBudget) {
         await AsyncStorage.setItem('user_budget', selectedBudget);
       }
       if (selectedGoals.length > 0) {
         await AsyncStorage.setItem('user_goals', JSON.stringify(selectedGoals));
+
+        // Sync goals to backend for AI context
+        try {
+          const goalsToSync = selectedGoals.map(goalId => {
+            const goalInfo = SAVINGS_GOALS.find(g => g.id === goalId);
+            const details = goalDetails[goalId] || { amount: '', date: '' };
+            return {
+              id: goalId,
+              label: goalInfo?.label || goalId,
+              target_amount: details.amount || undefined,
+              target_date: details.date || undefined,
+            };
+          });
+          await api.syncGoals(goalsToSync);
+          console.log('Goals synced to backend');
+        } catch (syncError) {
+          console.warn('Failed to sync goals to backend:', syncError);
+          // Continue anyway - goals saved locally
+        }
       }
       router.replace('/(tabs)');
     } catch (e) {
@@ -130,7 +189,7 @@ export default function OnboardingScreen() {
   };
 
   const renderDots = () => {
-    const steps: Step[] = ['income', 'budget', 'goals', 'sms', 'complete'];
+    const steps: Step[] = ['income', 'budget', 'goals', 'goal_details', 'sms', 'complete'];
     return (
       <View style={styles.dotsContainer}>
         {steps.map((s) => (
@@ -326,55 +385,61 @@ export default function OnboardingScreen() {
         </View>
       </View>
 
-      <Text style={styles.stepTitle}>What are you saving for?</Text>
-      <Text style={styles.stepSubtitle}>
-        Select your financial goals. We'll track your progress and give personalized tips.
-      </Text>
+      <ScrollView
+        style={styles.goalsScrollView}
+        contentContainerStyle={styles.goalsScrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={styles.stepTitle}>What are you saving for?</Text>
+        <Text style={styles.stepSubtitle}>
+          Select your financial goals. We'll track your progress and give personalized tips.
+        </Text>
 
-      <View style={styles.goalsGrid}>
-        {SAVINGS_GOALS.map((goal) => {
-          const isSelected = selectedGoals.includes(goal.id);
-          return (
-            <TouchableOpacity
-              key={goal.id}
-              style={[
-                styles.goalCard,
-                isSelected && { borderColor: goal.color, backgroundColor: goal.color + '15' },
-              ]}
-              onPress={() => toggleGoal(goal.id)}
-              activeOpacity={0.7}
-            >
-              <View style={[
-                styles.goalIcon,
-                { backgroundColor: goal.color + '20' },
-              ]}>
-                <Ionicons
-                  name={goal.icon as any}
-                  size={24}
-                  color={goal.color}
-                />
-              </View>
-              <Text style={[
-                styles.goalLabel,
-                isSelected && { color: goal.color },
-              ]}>
-                {goal.label}
-              </Text>
-              {isSelected && (
-                <View style={[styles.goalCheck, { backgroundColor: goal.color }]}>
-                  <Ionicons name="checkmark" size={12} color={Colors.white} />
+        <View style={styles.goalsGrid}>
+          {SAVINGS_GOALS.map((goal) => {
+            const isSelected = selectedGoals.includes(goal.id);
+            return (
+              <TouchableOpacity
+                key={goal.id}
+                style={[
+                  styles.goalCard,
+                  isSelected && { borderColor: goal.color, backgroundColor: goal.color + '15' },
+                ]}
+                onPress={() => toggleGoal(goal.id)}
+                activeOpacity={0.7}
+              >
+                <View style={[
+                  styles.goalIcon,
+                  { backgroundColor: goal.color + '20' },
+                ]}>
+                  <Ionicons
+                    name={goal.icon as any}
+                    size={24}
+                    color={goal.color}
+                  />
                 </View>
-              )}
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+                <Text style={[
+                  styles.goalLabel,
+                  isSelected && { color: goal.color },
+                ]}>
+                  {goal.label}
+                </Text>
+                {isSelected && (
+                  <View style={[styles.goalCheck, { backgroundColor: goal.color }]}>
+                    <Ionicons name="checkmark" size={12} color={Colors.white} />
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
 
-      <Text style={styles.goalSelectedCount}>
-        {selectedGoals.length} goal{selectedGoals.length !== 1 ? 's' : ''} selected
-      </Text>
+        <Text style={styles.goalSelectedCount}>
+          {selectedGoals.length} goal{selectedGoals.length !== 1 ? 's' : ''} selected
+        </Text>
+      </ScrollView>
 
-      <View style={styles.goalsFooter}>
+      <View style={styles.stickyFooter}>
         <Button
           title="Continue →"
           onPress={handleNext}
@@ -384,6 +449,127 @@ export default function OnboardingScreen() {
       </View>
     </>
   );
+
+  const renderGoalDetailsStep = () => {
+    const currentGoalId = selectedGoals[currentGoalIndex];
+    const currentGoal = SAVINGS_GOALS.find(g => g.id === currentGoalId);
+
+    if (!currentGoal) return null;
+
+    const details = goalDetails[currentGoalId] || { amount: '', date: '' };
+
+    return (
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
+      >
+        <View style={styles.stepHeader}>
+          <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+            <Ionicons name="chevron-back" size={24} color={Colors.textPrimary} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleSkip}>
+            <Text style={styles.headerSkipText}>Skip</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.progressContainer}>
+          <View style={styles.progressLabels}>
+            <Text style={styles.progressStepText}>STEP {getStepNumber().current} OF {getStepNumber().total}</Text>
+            <Text style={styles.progressStepText}>GOAL DETAILS ({currentGoalIndex + 1}/{selectedGoals.length})</Text>
+          </View>
+          <View style={styles.progressBarBg}>
+            <View style={[styles.progressBarFill, { width: `${getProgress()}%` }]} />
+          </View>
+        </View>
+
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ flexGrow: 1 }}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={{ alignItems: 'center', marginBottom: Spacing.xl }}>
+            <View style={[styles.goalIcon, { backgroundColor: currentGoal.color + '20', width: 64, height: 64, borderRadius: 32 }]}>
+              <Ionicons name={currentGoal.icon as any} size={32} color={currentGoal.color} />
+            </View>
+            <Text style={[styles.stepTitle, { marginTop: Spacing.md, textAlign: 'center' }]}>
+              {currentGoal.label}
+            </Text>
+            <Text style={[styles.stepSubtitle, { textAlign: 'center' }]}>
+              Set your target for this goal.
+            </Text>
+          </View>
+
+          <View style={styles.formContainer}>
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Target Amount (₹)</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="e.g. 1,00,000"
+                placeholderTextColor={Colors.gray400}
+                keyboardType="numeric"
+                value={details.amount}
+                onChangeText={(text) => setGoalDetails(prev => ({
+                  ...prev,
+                  [currentGoalId]: { ...prev[currentGoalId], amount: text, date: prev[currentGoalId]?.date || '' }
+                }))}
+              />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Target Date (Optional)</Text>
+              <TouchableOpacity
+                style={styles.datePickerButton}
+                onPress={() => setShowDatePicker(true)}
+              >
+                <Text style={details.date ? styles.dateInputText : styles.dateInputPlaceholder}>
+                  {details.date || 'Select date'}
+                </Text>
+                <Ionicons name="calendar-outline" size={20} color={Colors.gray500} />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {showDatePicker && (
+            <DateTimePicker
+              value={details.date ? new Date(details.date) : new Date()}
+              mode="date"
+              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+              minimumDate={new Date()}
+              onChange={(event: DateTimePickerEvent, selectedDate?: Date) => {
+                if (Platform.OS === 'android') {
+                  setShowDatePicker(false);
+                }
+                if (event.type === 'set' && selectedDate) {
+                  const dateStr = selectedDate.toISOString().split('T')[0];
+                  setGoalDetails(prev => ({
+                    ...prev,
+                    [currentGoalId]: { ...prev[currentGoalId], date: dateStr, amount: prev[currentGoalId]?.amount || '' }
+                  }));
+                  if (Platform.OS === 'ios') {
+                    setShowDatePicker(false);
+                  }
+                } else if (event.type === 'dismissed') {
+                  setShowDatePicker(false);
+                }
+              }}
+            />
+          )}
+        </ScrollView>
+
+        <View style={styles.stickyFooter}>
+          <Button
+            title={currentGoalIndex < selectedGoals.length - 1 ? "Next Goal →" : "Continue →"}
+            onPress={handleNext}
+            disabled={!details.amount}
+            size="lg"
+            style={styles.footerButton}
+          />
+        </View>
+      </KeyboardAvoidingView>
+    );
+  };
 
   const renderSmsStep = () => (
     <>
@@ -480,6 +666,7 @@ export default function OnboardingScreen() {
           {step === 'income' && renderIncomeStep()}
           {step === 'budget' && renderBudgetStep()}
           {step === 'goals' && renderGoalsStep()}
+          {step === 'goal_details' && renderGoalDetailsStep()}
           {step === 'sms' && renderSmsStep()}
           {step === 'complete' && renderCompleteStep()}
         </View>
@@ -496,11 +683,11 @@ const SimpleLogo = () => (
     width: 64,
     height: 64,
     borderRadius: 20,
-    backgroundColor: '#EAE0D5',
+    backgroundColor: Colors.surfaceSecondary,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#D6C8B5'
+    borderColor: Colors.gray300
   }}>
     <Ionicons name="wallet-outline" size={32} color={Colors.textSecondary} />
   </View>
@@ -579,12 +766,12 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   getStartedButton: {
-    backgroundColor: '#3E3630',
+    backgroundColor: Colors.primary,
     borderRadius: BorderRadius.full,
     marginBottom: Spacing.xl,
   },
   getStartedText: {
-    color: '#EAE0D5',
+    color: Colors.textInverse,
     fontWeight: FontWeight.bold,
   },
   loginRow: {
@@ -636,13 +823,13 @@ const styles = StyleSheet.create({
   },
   progressBarBg: {
     height: 4,
-    backgroundColor: '#EAE0D5',
+    backgroundColor: Colors.gray200,
     borderRadius: 2,
     marginTop: 8,
   },
   progressBarFill: {
     height: '100%',
-    backgroundColor: '#2D2723',
+    backgroundColor: Colors.primary,
     borderRadius: 2,
   },
   stepTitle: {
@@ -674,38 +861,80 @@ const styles = StyleSheet.create({
     height: 64,
   },
   optionCardSelected: {
-    backgroundColor: '#FFFBEB', // Light yellow/cream bg
+    backgroundColor: Colors.primaryLight + '20',
   },
   optionCardText: {
     fontSize: FontSize.lg,
     fontWeight: FontWeight.bold,
-    color: '#0F172A',
+    color: Colors.textPrimary,
   },
   radioButton: {
     width: 24,
     height: 24,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#CBD5E1',
+    borderColor: Colors.gray400,
     alignItems: 'center',
     justifyContent: 'center',
   },
   radioButtonSelected: {
-    borderColor: '#0F172A',
+    borderColor: Colors.primary,
   },
   radioButtonInner: {
     width: 12,
     height: 12,
     borderRadius: 6,
-    backgroundColor: '#0F172A',
+    backgroundColor: Colors.primary,
   },
   footer: {
     marginTop: 'auto',
     paddingBottom: Spacing.xl,
   },
   footerButton: {
-    backgroundColor: '#1E293B',
+    backgroundColor: Colors.primary,
     borderRadius: BorderRadius.full,
+  },
+
+  // Goal Details Styles
+  formContainer: {
+    marginBottom: Spacing.xl,
+    gap: Spacing.lg,
+  },
+  inputGroup: {
+    gap: Spacing.xs,
+  },
+  inputLabel: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: Colors.textSecondary,
+    marginLeft: Spacing.xs,
+  },
+  textInput: {
+    backgroundColor: Colors.white,
+    borderWidth: 1,
+    borderColor: Colors.gray200,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.md,
+    fontSize: FontSize.md,
+    color: Colors.textPrimary,
+  },
+  datePickerButton: {
+    backgroundColor: Colors.white,
+    borderWidth: 1,
+    borderColor: Colors.gray200,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  dateInputText: {
+    fontSize: FontSize.md,
+    color: Colors.textPrimary,
+  },
+  dateInputPlaceholder: {
+    fontSize: FontSize.md,
+    color: Colors.gray400,
   },
 
   // Goals Step Styles
@@ -770,9 +999,17 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: Spacing.lg,
   },
-  goalsFooter: {
-    marginTop: Spacing.md,
-    paddingBottom: Spacing.xl,
+  goalsScrollView: {
+    flex: 1,
+  },
+  goalsScrollContent: {
+    paddingBottom: Spacing.lg,
+  },
+  stickyFooter: {
+    paddingVertical: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: Colors.gray200,
+    backgroundColor: Colors.background,
   },
 
   // Existing/Shared Styles

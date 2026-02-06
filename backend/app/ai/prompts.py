@@ -319,6 +319,24 @@ def build_chat_system_prompt(user_context: Dict[str, Any]) -> str:
     goals = user_context.get("goals", [])
     memory = user_context.get("memory", {})
     
+    # Format goals with target details for better AI recommendations
+    goals_section = "No goals set"
+    if goals:
+        goal_lines = []
+        for g in goals:
+            goal_id = g.get("id", "unknown")
+            target_amount = g.get("target_amount", "Not set")
+            target_date = g.get("target_date", "No deadline")
+            monthly_needed = g.get("monthly_savings_needed", "")
+            
+            line = f"- {goal_id}: Target ₹{target_amount}"
+            if target_date and target_date != "No deadline":
+                line += f" by {target_date}"
+            if monthly_needed:
+                line += f" (₹{monthly_needed}/month needed)"
+            goal_lines.append(line)
+        goals_section = "\n".join(goal_lines)
+    
     return f"""{FISCALLY_SOUL}
 
 ## User Context
@@ -327,7 +345,8 @@ PROFILE: {json.dumps(profile, indent=2) if profile else "New user"}
 
 PATTERNS: {json.dumps(patterns, indent=2) if patterns else "No patterns yet"}
 
-GOALS: {json.dumps(goals, indent=2) if goals else "No goals set"}
+GOALS:
+{goals_section}
 
 MEMORY: {json.dumps(memory, indent=2) if memory else "No memories"}
 
@@ -336,6 +355,10 @@ MEMORY: {json.dumps(memory, indent=2) if memory else "No memories"}
 2. Keep responses under 100 words
 3. Always use ₹ for currency
 4. Be helpful, not preachy
+5. Use Markdown formatting (bold, bullet points) for readability
+6. Do NOT use JSON or YAML formatting in the response text
+7. When discussing goals, reference specific target amounts and dates
+8. Proactively suggest budget adjustments if spending patterns affect goal timelines
 """
 
 

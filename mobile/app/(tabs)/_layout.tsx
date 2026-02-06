@@ -135,6 +135,7 @@ const styles = StyleSheet.create({
   tabBar: {
     flexDirection: 'row',
     backgroundColor: Colors.surface + 'F5',
+    
     borderTopWidth: 1,
     borderTopColor: Colors.gray200,
     paddingTop: Spacing.sm,

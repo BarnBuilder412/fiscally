@@ -9,9 +9,9 @@ interface CardProps {
   padding?: 'none' | 'sm' | 'md' | 'lg';
 }
 
-export function Card({ 
-  children, 
-  style, 
+export function Card({
+  children,
+  style,
   variant = 'default',
   padding = 'md',
 }: CardProps) {
@@ -29,7 +29,11 @@ export function Card({
     };
 
     const variantStyles: Record<string, ViewStyle> = {
-      default: {},
+      default: {
+        borderWidth: 1,
+        borderColor: Colors.gray100,
+        ...Shadows.sm,
+      },
       elevated: Shadows.md,
       outlined: { borderWidth: 1, borderColor: Colors.gray200 },
     };

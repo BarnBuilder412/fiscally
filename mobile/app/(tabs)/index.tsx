@@ -188,6 +188,7 @@ export default function HomeScreen() {
   const [selectedPeriod, setSelectedPeriod] = useState<'today' | 'week' | 'month'>('month');
   const [userGoals, setUserGoals] = useState<string[]>([]);
   const [userBudget, setUserBudget] = useState<string | null>(null);
+  const [userGoalDetails, setUserGoalDetails] = useState<Record<string, any>>({});
   const [insights, setInsights] = useState<{
     headline?: string;
     summary?: string;
@@ -206,11 +207,12 @@ export default function HomeScreen() {
       setIsAuthenticated(true);
 
       // Load transactions and user preferences
-      const [txnResponse, insightsData, storedGoals, storedBudget] = await Promise.all([
+      const [txnResponse, insightsData, storedGoals, storedBudget, storedGoalDetails] = await Promise.all([
         api.getTransactions({ limit: 50 }).catch(() => ({ transactions: [] })),
         api.getInsights().catch(() => null),
         AsyncStorage.getItem('user_goals'),
         AsyncStorage.getItem('user_budget'),
+        AsyncStorage.getItem('user_goal_details'),
       ]);
 
       const txns = txnResponse?.transactions || [];
@@ -218,6 +220,7 @@ export default function HomeScreen() {
       setInsights(insightsData);
       setUserGoals(storedGoals ? JSON.parse(storedGoals) : []);
       setUserBudget(storedBudget);
+      setUserGoalDetails(storedGoalDetails ? JSON.parse(storedGoalDetails) : {});
     } catch (error: any) {
       if (error?.message?.includes('credentials') || error?.message?.includes('Not authenticated')) {
         setIsAuthenticated(false);
@@ -306,13 +309,27 @@ export default function HomeScreen() {
 
   // Goal data based on user selections
   const goalData = [
-    { id: 'emergency', label: 'Emergency Fund', icon: 'shield-checkmark', color: '#22C55E', current: 45000, target: 100000 },
-    { id: 'vacation', label: 'Vacation', icon: 'airplane', color: '#3B82F6', current: 12000, target: 30000 },
-    { id: 'investment', label: 'Investment', icon: 'trending-up', color: '#8B5CF6', current: 25000, target: 50000 },
-    { id: 'gadget', label: 'New Gadget', icon: 'phone-portrait', color: '#EC4899', current: 8000, target: 20000 },
-    { id: 'home', label: 'Home/Rent', icon: 'home', color: '#F59E0B', current: 60000, target: 100000 },
-    { id: 'education', label: 'Education', icon: 'school', color: '#06B6D4', current: 15000, target: 40000 },
-  ].filter(g => userGoals.includes(g.id));
+    { id: 'emergency', label: 'Emergency Fund', icon: 'shield-checkmark', color: '#22C55E' },
+    { id: 'vacation', label: 'Vacation', icon: 'airplane', color: '#3B82F6' },
+    { id: 'investment', label: 'Investment', icon: 'trending-up', color: '#8B5CF6' },
+    { id: 'gadget', label: 'New Gadget', icon: 'phone-portrait', color: '#EC4899' },
+    { id: 'home', label: 'Home/Rent', icon: 'home', color: '#F59E0B' },
+    { id: 'education', label: 'Education', icon: 'school', color: '#06B6D4' },
+    { id: 'vehicle', label: 'Vehicle', icon: 'car', color: '#EF4444' },
+    { id: 'wedding', label: 'Wedding', icon: 'heart', color: '#F472B6' },
+  ]
+    .filter(g => userGoals.includes(g.id))
+    .map(g => {
+      const details = userGoalDetails[g.id];
+      const target = details?.amount ? parseInt(details.amount.replace(/[^0-9]/g, '')) : 50000;
+      // TODO: Implement transaction tagging to calculate actual current saved amount.
+      // For now, default to 0 to respect accuracy of user data.
+      return {
+        ...g,
+        target,
+        current: 0
+      };
+    });
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {

@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, transactions, profile, chat
+from app.api.v1.endpoints import auth, transactions, profile, chat, goals
 
 api_router = APIRouter()
 
@@ -15,3 +15,6 @@ api_router.include_router(profile.router, prefix="/profile", tags=["Profile"])
 
 # Chat and AI insights endpoints
 api_router.include_router(chat.router, prefix="/chat", tags=["Chat & AI"])
+
+# Goals endpoints
+api_router.include_router(goals.router, prefix="/goals", tags=["Goals"])

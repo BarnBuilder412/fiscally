@@ -18,6 +18,7 @@ import {
     BorderRadius,
 } from '@/constants/theme';
 import { eventBus, Events } from '@/services/eventBus';
+import { GoalDetailForm, GoalDetailData } from '@/components/GoalDetailForm';
 
 const SAVINGS_GOALS = [
     { id: 'emergency', label: 'Emergency Fund', icon: 'shield-checkmark', color: '#22C55E', description: '3-6 months of expenses' },
@@ -34,6 +35,7 @@ export default function GoalsPreferencesScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const [selectedGoals, setSelectedGoals] = useState<string[]>([]);
+    const [goalDetails, setGoalDetails] = useState<Record<string, GoalDetailData>>({});
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
@@ -42,11 +44,19 @@ export default function GoalsPreferencesScreen() {
 
     const loadSavedGoals = async () => {
         const saved = await AsyncStorage.getItem('user_goals');
+        const savedDetails = await AsyncStorage.getItem('user_goal_details');
         if (saved) {
             try {
                 setSelectedGoals(JSON.parse(saved));
             } catch (e) {
                 console.error('Failed to parse goals:', e);
+            }
+        }
+        if (savedDetails) {
+            try {
+                setGoalDetails(JSON.parse(savedDetails));
+            } catch (e) {
+                console.error('Failed to parse goal details:', e);
             }
         }
     };
@@ -59,9 +69,17 @@ export default function GoalsPreferencesScreen() {
         );
     };
 
+    const handleGoalDetailChange = (goalId: string, data: GoalDetailData) => {
+        setGoalDetails(prev => ({
+            ...prev,
+            [goalId]: data,
+        }));
+    };
+
     const saveGoals = async () => {
         setSaving(true);
         await AsyncStorage.setItem('user_goals', JSON.stringify(selectedGoals));
+        await AsyncStorage.setItem('user_goal_details', JSON.stringify(goalDetails));
         eventBus.emit(Events.PREFERENCES_CHANGED);
         setSaving(false);
         router.back();
@@ -117,6 +135,33 @@ export default function GoalsPreferencesScreen() {
                         );
                     })}
                 </View>
+
+                {/* Goal Details Section */}
+                {selectedGoals.length > 0 && (
+                    <View style={styles.detailsSection}>
+                        <Text style={styles.detailsSectionTitle}>Set Your Targets</Text>
+                        <Text style={styles.detailsSectionSubtitle}>
+                            Configure amounts and dates for your selected goals
+                        </Text>
+
+                        {selectedGoals.map((goalId) => {
+                            const goal = SAVINGS_GOALS.find(g => g.id === goalId);
+                            if (!goal) return null;
+
+                            return (
+                                <GoalDetailForm
+                                    key={goal.id}
+                                    goalId={goal.id}
+                                    goalLabel={goal.label}
+                                    goalIcon={goal.icon}
+                                    goalColor={goal.color}
+                                    data={goalDetails[goal.id] || { amount: '', date: '' }}
+                                    onChange={handleGoalDetailChange}
+                                />
+                            );
+                        })}
+                    </View>
+                )}
             </ScrollView>
 
             <View style={[styles.footer, { paddingBottom: insets.bottom + 20 }]}>
@@ -233,5 +278,22 @@ const styles = StyleSheet.create({
         fontSize: FontSize.md,
         fontWeight: FontWeight.bold,
         color: Colors.white,
+    },
+    detailsSection: {
+        marginTop: Spacing.xl,
+        paddingTop: Spacing.lg,
+        borderTopWidth: 1,
+        borderTopColor: Colors.gray200,
+    },
+    detailsSectionTitle: {
+        fontSize: FontSize.lg,
+        fontWeight: FontWeight.bold,
+        color: Colors.textPrimary,
+        marginBottom: Spacing.xs,
+    },
+    detailsSectionSubtitle: {
+        fontSize: FontSize.sm,
+        color: Colors.textSecondary,
+        marginBottom: Spacing.lg,
     },
 });

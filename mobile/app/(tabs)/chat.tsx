@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useRouter } from 'expo-router';
+import Markdown from 'react-native-markdown-display';
 import {
   View,
   Text,
@@ -145,14 +146,33 @@ export default function ChatScreen() {
                 message.role === 'user' ? styles.userBubble : styles.assistantBubble,
               ]}
             >
-              <Text
-                style={[
-                  styles.messageText,
-                  message.role === 'user' ? styles.userText : styles.assistantText,
-                ]}
-              >
-                {message.content}
-              </Text>
+              {message.role === 'user' ? (
+                <Text style={styles.userText}>{message.content}</Text>
+              ) : (
+                <Markdown
+                  style={{
+                    body: {
+                      color: Colors.textPrimary,
+                      fontSize: FontSize.md,
+                      lineHeight: 22,
+                    },
+                    paragraph: {
+                      marginTop: 0,
+                      marginBottom: 10,
+                    },
+                    strong: {
+                      fontFamily: 'Inter-Bold', // Ensure you have this font or use fontWeight
+                      fontWeight: '700',
+                      color: Colors.primary,
+                    },
+                    link: {
+                      color: Colors.info,
+                    },
+                  }}
+                >
+                  {message.content}
+                </Markdown>
+              )}
             </View>
           ))}
 

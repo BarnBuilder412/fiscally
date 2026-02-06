@@ -1,52 +1,52 @@
 export const Colors = {
-  // Primary palette – warm taupe inspired by Stitch designs
-  primary: '#8B7E66',
-  primaryLight: '#C4B69C',
-  primaryDark: '#6B6052',
-  
-  // Secondary palette - Emerald
-  secondary: '#5F9EA0',
-  secondaryLight: '#7FB6B8',
-  secondaryDark: '#4A7D7F',
-  
-  // Accent colors
-  accent: '#C5A059',
-  accentLight: '#E1C66A',
-  
+  // Primary palette – Deep navy indigo (professional & trustworthy)
+  primary: '#424874',
+  primaryLight: '#5A6499',
+  primaryDark: '#2E3352',
+
+  // Secondary palette - Muted blue-purple
+  secondary: '#A6B1E1',
+  secondaryLight: '#C2CAF0',
+  secondaryDark: '#8A96D0',
+
+  // Accent colors - Soft lavender
+  accent: '#DCD6F7',
+  accentLight: '#F4EEFF',
+
   // Semantic colors
   success: '#22C55E',
   warning: '#F59E0B',
   error: '#EF4444',
   info: '#3B82F6',
-  
+
   // Neutrals
   white: '#FFFFFF',
   black: '#000000',
-  
-  // Grays for text, borders
-  gray50: '#FAFAF8',
-  gray100: '#F0ECE4',
-  gray200: '#E8E2D6',
-  gray300: '#D9D1C7',
-  gray400: '#B8ACA2',
-  gray500: '#8B7E73',
-  gray600: '#6B5F55',
-  gray700: '#4A403A',
-  gray800: '#2D2723',
-  gray900: '#1A1613',
-  
-  // Neutral backgrounds – cream / off-white tones
-  background: '#F9F7F2',
+
+  // Grays for text, borders - cool-toned to match indigo
+  gray50: '#FAFAFD',
+  gray100: '#F5F5FA',
+  gray200: '#E8E8F2',
+  gray300: '#D4D4E2',
+  gray400: '#A8A8BE',
+  gray500: '#7A7A96',
+  gray600: '#5C5C74',
+  gray700: '#424256',
+  gray800: '#2C2C3C',
+  gray900: '#1A1A24',
+
+  // Neutral backgrounds – very light lavender from palette
+  background: '#f9f8f3ff',
   surface: '#FFFFFF',
-  surfaceSecondary: '#F5F2ED',
-  
+  surfaceSecondary: '#EDE8F8',
+
   // Text colors
-  textPrimary: '#4A4A4A',
-  textSecondary: '#795548',
-  textTertiary: '#8B7E73',
+  textPrimary: '#1A1A24',
+  textSecondary: '#5C5C74',
+  textTertiary: '#7A7A96',
   textInverse: '#FFFFFF',
-  
-  // Category colors
+
+  // Category colors - vibrant & distinct
   categoryFood: '#EF4444',
   categoryTransport: '#3B82F6',
   categoryShopping: '#8B5CF6',

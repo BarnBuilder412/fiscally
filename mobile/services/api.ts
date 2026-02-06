@@ -229,6 +229,28 @@ class ApiClient {
     });
   }
 
+  // Goals
+  async syncGoals(goals: Array<{
+    id: string;
+    label: string;
+    target_amount?: string;
+    target_date?: string;
+  }>): Promise<{ synced_count: number; goals: any[] }> {
+    return this.request('/api/v1/goals/sync', {
+      method: 'POST',
+      body: JSON.stringify({ goals }),
+    });
+  }
+
+  async getBudgetAnalysis(): Promise<{
+    has_goals: boolean;
+    total_monthly_savings_needed?: number;
+    goals?: any[];
+    tip?: string;
+  }> {
+    return this.request('/api/v1/goals/budget-analysis');
+  }
+
   // Helper to check if user is authenticated
   async isAuthenticated(): Promise<boolean> {
     const token = await this.getAccessToken();

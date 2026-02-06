@@ -404,7 +404,7 @@ class AlertAgent:
     def __init__(self, context_manager: ContextManager):
         self.context = context_manager
     
-    @opik.track(name=\"alert_agent_check\", tags=[\"agent\", \"alerts\", \"monitoring\"])
+    @opik.track(name="alert_agent_check", tags=["agent", "alerts", "monitoring"])
     async def check_alerts(
         self,
         user_id: str,

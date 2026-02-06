@@ -15,26 +15,26 @@ export function TransactionItem({ transaction, onPress }: TransactionItemProps) 
     const date = new Date(dateString);
     const now = new Date();
     const isToday = date.toDateString() === now.toDateString();
-    
-    const timeStr = date.toLocaleTimeString('en-US', { 
-      hour: 'numeric', 
+
+    const timeStr = date.toLocaleTimeString('en-US', {
+      hour: 'numeric',
       minute: '2-digit',
-      hour12: true 
+      hour12: true
     });
-    
+
     if (isToday) {
       return `Today, ${timeStr}`;
     }
-    
+
     const yesterday = new Date(now);
     yesterday.setDate(yesterday.getDate() - 1);
     if (date.toDateString() === yesterday.toDateString()) {
       return `Yesterday, ${timeStr}`;
     }
-    
-    return date.toLocaleDateString('en-US', { 
-      month: 'short', 
-      day: 'numeric' 
+
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric'
     }) + `, ${timeStr}`;
   };
 
@@ -48,26 +48,30 @@ export function TransactionItem({ transaction, onPress }: TransactionItemProps) 
   };
 
   return (
-    <TouchableOpacity 
-      style={styles.container} 
+    <TouchableOpacity
+      style={styles.container}
       onPress={onPress}
       activeOpacity={0.7}
     >
       <View style={[styles.iconContainer, { backgroundColor: getCategoryColor(transaction.category) + '20' }]}>
-        <Ionicons 
-          name={getCategoryIcon(transaction.category)} 
-          size={22} 
-          color={getCategoryColor(transaction.category)} 
+        <Ionicons
+          name={getCategoryIcon(transaction.category)}
+          size={22}
+          color={getCategoryColor(transaction.category)}
         />
       </View>
-      
+
       <View style={styles.content}>
         <Text style={styles.merchant} numberOfLines={1}>
-          {transaction.merchant || transaction.category}
+          {(transaction.merchant && transaction.merchant !== 'Manual Expense')
+            ? transaction.merchant
+            : (transaction.category
+              ? (transaction.category.charAt(0).toUpperCase() + transaction.category.slice(1).replace('_', ' '))
+              : 'Expense')}
         </Text>
         <Text style={styles.time}>{formatTime(transaction.created_at)}</Text>
       </View>
-      
+
       <Text style={styles.amount}>-{formatAmount(transaction.amount)}</Text>
     </TouchableOpacity>
   );
