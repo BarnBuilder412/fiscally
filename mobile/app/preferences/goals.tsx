@@ -86,7 +86,7 @@ export default function GoalsPreferencesScreen() {
 
         // Sync to backend for goal progress tracking
         try {
-            const goalsToSync = selectedGoals.map(goalId => {
+            const goalsToSync = selectedGoals.map((goalId, index) => {
                 const details = goalDetails[goalId] || {};
                 const goalInfo = SAVINGS_GOALS.find(g => g.id === goalId);
                 return {
@@ -94,6 +94,7 @@ export default function GoalsPreferencesScreen() {
                     label: goalInfo?.label || goalId,
                     target_amount: details.amount || undefined,
                     target_date: details.date || undefined,
+                    priority: index + 1, // Priority based on order: 1 = highest priority
                 };
             });
             await api.syncGoals(goalsToSync);

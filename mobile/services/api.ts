@@ -235,6 +235,7 @@ class ApiClient {
     label: string;
     target_amount?: string;
     target_date?: string;
+    priority?: number;
   }>): Promise<{ synced_count: number; goals: any[] }> {
     return this.request('/api/v1/goals/sync', {
       method: 'POST',

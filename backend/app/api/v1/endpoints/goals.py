@@ -22,6 +22,7 @@ class GoalDetail(BaseModel):
     label: str
     target_amount: Optional[str] = None
     target_date: Optional[str] = None
+    priority: Optional[int] = None
 
 
 class GoalsSyncRequest(BaseModel):
@@ -54,6 +55,7 @@ async def sync_goals(
             "label": goal.label,
             "target_amount": goal.target_amount,
             "target_date": goal.target_date,
+            "priority": goal.priority,
             "synced_at": datetime.now().isoformat()
         }
         goals_to_store.append(goal_data)

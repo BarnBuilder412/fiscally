@@ -34,13 +34,15 @@ const GoalCard = ({
   current,
   target,
   icon,
-  color
+  color,
+  monthlyContribution
 }: {
   goal: string;
   current: number;
   target: number;
   icon: string;
   color: string;
+  monthlyContribution?: number;
 }) => {
   const progress = Math.min((current / target) * 100, 100);
 
@@ -63,6 +65,14 @@ const GoalCard = ({
         <View style={[styles.goalProgressFill, { width: `${progress}%`, backgroundColor: color }]} />
       </View>
       <Text style={[styles.goalPercent, { color }]}>{Math.round(progress)}%</Text>
+      {monthlyContribution !== undefined && monthlyContribution > 0 && (
+        <View style={styles.goalMonthlyContainer}>
+          <Ionicons name="trending-up" size={12} color={Colors.primary} />
+          <Text style={styles.goalMonthlyText}>
+            {formatAmount(monthlyContribution)}/month allocated
+          </Text>
+        </View>
+      )}
     </View>
   );
 };
@@ -340,13 +350,24 @@ export default function HomeScreen() {
   const incomeAmount = getIncomeAmount();
   const monthlySavings = Math.max(0, incomeAmount - monthlySpent);
 
+  const GOAL_METADATA: Record<string, { label: string; icon: string; color: string }> = {
+    emergency: { label: 'Emergency Fund', icon: 'shield-checkmark', color: '#22C55E' },
+    vacation: { label: 'Vacation', icon: 'airplane', color: '#3B82F6' },
+    investment: { label: 'Investment', icon: 'trending-up', color: '#8B5CF6' },
+    gadget: { label: 'New Gadget', icon: 'phone-portrait', color: '#EC4899' },
+    home: { label: 'Home/Rent', icon: 'home', color: '#F59E0B' },
+    education: { label: 'Education', icon: 'school', color: '#06B6D4' },
+    vehicle: { label: 'Vehicle', icon: 'car', color: '#EF4444' },
+    wedding: { label: 'Wedding', icon: 'heart', color: '#F472B6' },
+  };
+
   // Goal data - use real API data if available, fallback to local calculation
   const goalData = goalProgress?.goals?.length
     ? goalProgress.goals.map(g => ({
       id: g.id,
       label: g.label,
-      icon: g.icon || 'flag',
-      color: g.color || Colors.primary,
+      icon: g.icon || GOAL_METADATA[g.id]?.icon || 'flag',
+      color: g.color || GOAL_METADATA[g.id]?.color || Colors.primary,
       target: g.target_amount,
       current: g.current_saved,
       monthlyContribution: g.monthly_contribution,
@@ -356,21 +377,10 @@ export default function HomeScreen() {
     }))
     : (() => {
       // Local calculation: distribute savings across goals by priority (order in array)
-      const allGoals = [
-        { id: 'emergency', label: 'Emergency Fund', icon: 'shield-checkmark', color: '#22C55E' },
-        { id: 'vacation', label: 'Vacation', icon: 'airplane', color: '#3B82F6' },
-        { id: 'investment', label: 'Investment', icon: 'trending-up', color: '#8B5CF6' },
-        { id: 'gadget', label: 'New Gadget', icon: 'phone-portrait', color: '#EC4899' },
-        { id: 'home', label: 'Home/Rent', icon: 'home', color: '#F59E0B' },
-        { id: 'education', label: 'Education', icon: 'school', color: '#06B6D4' },
-        { id: 'vehicle', label: 'Vehicle', icon: 'car', color: '#EF4444' },
-        { id: 'wedding', label: 'Wedding', icon: 'heart', color: '#F472B6' },
-      ];
-
       let remainingSavings = monthlySavings;
       return userGoals.map((goalId, index) => {
-        const g = allGoals.find(goal => goal.id === goalId);
-        if (!g) return null;
+        const metadata = GOAL_METADATA[goalId];
+        if (!metadata) return null;
 
         const details = userGoalDetails[goalId];
         const target = details?.amount ? parseInt(details.amount.replace(/[^0-9]/g, '')) : 50000;
@@ -383,7 +393,10 @@ export default function HomeScreen() {
         const progressPercentage = target > 0 ? Math.min(100, (monthlyContribution * 12 / target) * 100) : 0;
 
         return {
-          ...g,
+          id: goalId,
+          label: metadata.label,
+          icon: metadata.icon,
+          color: metadata.color,
           target,
           current: 0, // No saved amount tracked yet
           monthlyContribution,
@@ -484,6 +497,7 @@ export default function HomeScreen() {
                   target={goal.target}
                   icon={goal.icon}
                   color={goal.color}
+                  monthlyContribution={goal.monthlyContribution}
                 />
               ))}
             </ScrollView>
@@ -743,6 +757,20 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.bold,
     marginTop: Spacing.xs,
     textAlign: 'right',
+  },
+  goalMonthlyContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: Spacing.xs,
+    paddingTop: Spacing.xs,
+    borderTopWidth: 1,
+    borderTopColor: Colors.gray100,
+  },
+  goalMonthlyText: {
+    fontSize: 10,
+    color: Colors.textSecondary,
+    fontWeight: FontWeight.medium,
   },
   // No Goals CTA
   noGoalsCard: {
