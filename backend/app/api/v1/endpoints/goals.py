@@ -50,6 +50,7 @@ async def sync_goals(
     # Format goals for storage
     goals_to_store = []
     for goal in request.goals:
+        print(f"Syncing goal: {goal.label}, Priority: {goal.priority}")
         goal_data = {
             "id": goal.id,
             "label": goal.label,

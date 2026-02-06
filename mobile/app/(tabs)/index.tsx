@@ -288,7 +288,7 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       loadData();
-    }, [])
+    }, [loadData])
   );
 
   const onRefresh = async () => {
