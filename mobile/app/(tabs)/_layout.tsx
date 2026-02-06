@@ -1,8 +1,10 @@
-import { Tabs, useRouter } from 'expo-router';
-import { View, TouchableOpacity, StyleSheet, Text } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { Tabs, useRouter, Redirect } from 'expo-router';
+import { View, TouchableOpacity, StyleSheet, Text, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, FontSize, FontWeight, Spacing, BorderRadius, Shadows } from '@/constants/theme';
+import { api } from '@/services/api';
 
 interface TabBarProps {
   state: { routes: { name: string }[]; index: number };
@@ -90,6 +92,35 @@ function CustomTabBar({ state, navigation }: TabBarProps) {
 }
 
 export default function TabLayout() {
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const authenticated = await api.isAuthenticated();
+        setIsAuthenticated(authenticated);
+      } catch (error) {
+        console.log('Auth check failed:', error);
+        setIsAuthenticated(false);
+      }
+    };
+    checkAuth();
+  }, []);
+
+  // Show loading while checking auth
+  if (isAuthenticated === null) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.background }}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+      </View>
+    );
+  }
+
+  // Redirect to login if not authenticated
+  if (isAuthenticated === false) {
+    return <Redirect href="/(auth)/login" />;
+  }
+
   return (
     <Tabs
       tabBar={(props) => <CustomTabBar {...props} />}
@@ -135,7 +166,7 @@ const styles = StyleSheet.create({
   tabBar: {
     flexDirection: 'row',
     backgroundColor: Colors.surface + 'F5',
-    
+
     borderTopWidth: 1,
     borderTopColor: Colors.gray200,
     paddingTop: Spacing.sm,

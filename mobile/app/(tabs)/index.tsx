@@ -188,6 +188,7 @@ export default function HomeScreen() {
   const [selectedPeriod, setSelectedPeriod] = useState<'today' | 'week' | 'month'>('month');
   const [userGoals, setUserGoals] = useState<string[]>([]);
   const [userBudget, setUserBudget] = useState<string | null>(null);
+  const [userIncome, setUserIncome] = useState<string | null>(null);
   const [userGoalDetails, setUserGoalDetails] = useState<Record<string, any>>({});
   const [insights, setInsights] = useState<{
     headline?: string;
@@ -215,12 +216,13 @@ export default function HomeScreen() {
       setIsAuthenticated(true);
 
       // Load transactions and user preferences
-      const [txnResponse, insightsData, goalProgressData, storedGoals, storedBudget, storedGoalDetails] = await Promise.all([
+      const [txnResponse, insightsData, goalProgressData, storedGoals, storedBudget, storedIncome, storedGoalDetails] = await Promise.all([
         api.getTransactions({ limit: 50 }).catch(() => ({ transactions: [] })),
         api.getInsights().catch(() => null),
-        api.getGoalProgress().catch(() => null),
+        api.getGoalProgress().catch((e) => { console.log('[HomeScreen] Goal progress API error:', e); return null; }),
         AsyncStorage.getItem('user_goals'),
         AsyncStorage.getItem('user_budget'),
+        AsyncStorage.getItem('user_income'),
         AsyncStorage.getItem('user_goal_details'),
       ]);
 
@@ -228,8 +230,15 @@ export default function HomeScreen() {
       setTransactions(Array.isArray(txns) ? txns : []);
       setInsights(insightsData);
       setGoalProgress(goalProgressData);
+      console.log('[HomeScreen] Goal Progress API response:', goalProgressData);
+      if (goalProgressData?.goals) {
+        console.log('[HomeScreen] Goals from API:', goalProgressData.goals.length, 'goals');
+      } else {
+        console.log('[HomeScreen] No goals from API, using local fallback');
+      }
       setUserGoals(storedGoals ? JSON.parse(storedGoals) : []);
       setUserBudget(storedBudget);
+      setUserIncome(storedIncome);
       setUserGoalDetails(storedGoalDetails ? JSON.parse(storedGoalDetails) : {});
     } catch (error: any) {
       if (error?.message?.includes('credentials') || error?.message?.includes('Not authenticated')) {
@@ -317,7 +326,21 @@ export default function HomeScreen() {
   const daysRemaining = daysInMonth - currentDay;
   const remainingBudget = Math.max(budget - monthlySpent, 0);
 
-  // Goal data - use real API data if available, fallback to local
+  // Calculate income amount from range
+  const getIncomeAmount = () => {
+    switch (userIncome) {
+      case 'below_30k': return 25000;
+      case '30k_75k': return 52500;
+      case '75k_150k': return 112500;
+      case 'above_150k': return 200000;
+      default: return 0;
+    }
+  };
+
+  const incomeAmount = getIncomeAmount();
+  const monthlySavings = Math.max(0, incomeAmount - monthlySpent);
+
+  // Goal data - use real API data if available, fallback to local calculation
   const goalData = goalProgress?.goals?.length
     ? goalProgress.goals.map(g => ({
       id: g.id,
@@ -331,29 +354,44 @@ export default function HomeScreen() {
       onTrack: g.on_track,
       projectedDate: g.projected_completion_date,
     }))
-    : [
-      { id: 'emergency', label: 'Emergency Fund', icon: 'shield-checkmark', color: '#22C55E' },
-      { id: 'vacation', label: 'Vacation', icon: 'airplane', color: '#3B82F6' },
-      { id: 'investment', label: 'Investment', icon: 'trending-up', color: '#8B5CF6' },
-      { id: 'gadget', label: 'New Gadget', icon: 'phone-portrait', color: '#EC4899' },
-      { id: 'home', label: 'Home/Rent', icon: 'home', color: '#F59E0B' },
-      { id: 'education', label: 'Education', icon: 'school', color: '#06B6D4' },
-      { id: 'vehicle', label: 'Vehicle', icon: 'car', color: '#EF4444' },
-      { id: 'wedding', label: 'Wedding', icon: 'heart', color: '#F472B6' },
-    ]
-      .filter(g => userGoals.includes(g.id))
-      .map(g => {
-        const details = userGoalDetails[g.id];
+    : (() => {
+      // Local calculation: distribute savings across goals by priority (order in array)
+      const allGoals = [
+        { id: 'emergency', label: 'Emergency Fund', icon: 'shield-checkmark', color: '#22C55E' },
+        { id: 'vacation', label: 'Vacation', icon: 'airplane', color: '#3B82F6' },
+        { id: 'investment', label: 'Investment', icon: 'trending-up', color: '#8B5CF6' },
+        { id: 'gadget', label: 'New Gadget', icon: 'phone-portrait', color: '#EC4899' },
+        { id: 'home', label: 'Home/Rent', icon: 'home', color: '#F59E0B' },
+        { id: 'education', label: 'Education', icon: 'school', color: '#06B6D4' },
+        { id: 'vehicle', label: 'Vehicle', icon: 'car', color: '#EF4444' },
+        { id: 'wedding', label: 'Wedding', icon: 'heart', color: '#F472B6' },
+      ];
+
+      let remainingSavings = monthlySavings;
+      return userGoals.map((goalId, index) => {
+        const g = allGoals.find(goal => goal.id === goalId);
+        if (!g) return null;
+
+        const details = userGoalDetails[goalId];
         const target = details?.amount ? parseInt(details.amount.replace(/[^0-9]/g, '')) : 50000;
+
+        // Calculate monthly contribution based on priority
+        const monthlyContribution = target > 0 ? Math.min(remainingSavings, target / 12) : 0;
+        remainingSavings = Math.max(0, remainingSavings - monthlyContribution);
+
+        // Progress percentage - what percentage of target the monthly savings covers over time
+        const progressPercentage = target > 0 ? Math.min(100, (monthlyContribution * 12 / target) * 100) : 0;
+
         return {
           ...g,
           target,
-          current: 0,
-          monthlyContribution: 0,
-          progressPercentage: 0,
-          onTrack: true,
+          current: 0, // No saved amount tracked yet
+          monthlyContribution,
+          progressPercentage,
+          onTrack: incomeAmount > 0 && monthlySavings > 0,
         };
-      });
+      }).filter((g): g is NonNullable<typeof g> => g !== null);
+    })();
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {

@@ -157,6 +157,63 @@ export default function GoalsPreferencesScreen() {
                     })}
                 </View>
 
+                {/* Priority Ordering Section */}
+                {selectedGoals.length > 1 && (
+                    <View style={styles.detailsSection}>
+                        <Text style={styles.detailsSectionTitle}>🎯 Set Priority Order</Text>
+                        <Text style={styles.detailsSectionSubtitle}>
+                            Drag goals to reorder. Higher priority goals get savings allocated first.
+                        </Text>
+
+                        {selectedGoals.map((goalId, index) => {
+                            const goal = SAVINGS_GOALS.find(g => g.id === goalId);
+                            if (!goal) return null;
+
+                            const moveUp = () => {
+                                if (index === 0) return;
+                                const newOrder = [...selectedGoals];
+                                [newOrder[index - 1], newOrder[index]] = [newOrder[index], newOrder[index - 1]];
+                                setSelectedGoals(newOrder);
+                            };
+
+                            const moveDown = () => {
+                                if (index === selectedGoals.length - 1) return;
+                                const newOrder = [...selectedGoals];
+                                [newOrder[index], newOrder[index + 1]] = [newOrder[index + 1], newOrder[index]];
+                                setSelectedGoals(newOrder);
+                            };
+
+                            return (
+                                <View key={goal.id} style={styles.priorityItem}>
+                                    <View style={styles.priorityRank}>
+                                        <Text style={styles.priorityRankText}>{index + 1}</Text>
+                                    </View>
+                                    <View style={[styles.priorityIcon, { backgroundColor: goal.color + '20' }]}>
+                                        <Ionicons name={goal.icon as any} size={18} color={goal.color} />
+                                    </View>
+                                    <Text style={styles.priorityLabel}>{goal.label}</Text>
+                                    <View style={styles.priorityButtons}>
+                                        <TouchableOpacity
+                                            onPress={moveUp}
+                                            style={[styles.priorityBtn, index === 0 && styles.priorityBtnDisabled]}
+                                            disabled={index === 0}
+                                        >
+                                            <Ionicons name="chevron-up" size={20} color={index === 0 ? Colors.gray300 : Colors.textPrimary} />
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            onPress={moveDown}
+                                            style={[styles.priorityBtn, index === selectedGoals.length - 1 && styles.priorityBtnDisabled]}
+                                            disabled={index === selectedGoals.length - 1}
+                                        >
+                                            <Ionicons name="chevron-down" size={20} color={index === selectedGoals.length - 1 ? Colors.gray300 : Colors.textPrimary} />
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                            );
+                        })}
+                    </View>
+                )}
+
                 {/* Goal Details Section */}
                 {selectedGoals.length > 0 && (
                     <View style={styles.detailsSection}>
@@ -316,5 +373,58 @@ const styles = StyleSheet.create({
         fontSize: FontSize.sm,
         color: Colors.textSecondary,
         marginBottom: Spacing.lg,
+    },
+    priorityItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: Colors.surface,
+        borderRadius: BorderRadius.lg,
+        padding: Spacing.md,
+        marginBottom: Spacing.sm,
+        borderWidth: 1,
+        borderColor: Colors.gray200,
+    },
+    priorityRank: {
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        backgroundColor: Colors.primary,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: Spacing.sm,
+    },
+    priorityRankText: {
+        fontSize: FontSize.sm,
+        fontWeight: FontWeight.bold,
+        color: Colors.white,
+    },
+    priorityIcon: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: Spacing.sm,
+    },
+    priorityLabel: {
+        flex: 1,
+        fontSize: FontSize.md,
+        fontWeight: FontWeight.semibold,
+        color: Colors.textPrimary,
+    },
+    priorityButtons: {
+        flexDirection: 'row',
+        gap: Spacing.xs,
+    },
+    priorityBtn: {
+        width: 36,
+        height: 36,
+        borderRadius: BorderRadius.md,
+        backgroundColor: Colors.gray100,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    priorityBtnDisabled: {
+        opacity: 0.4,
     },
 });

@@ -36,13 +36,16 @@ class GoalsSyncResponse(BaseModel):
 @router.post("/sync", response_model=GoalsSyncResponse)
 async def sync_goals(
     request: GoalsSyncRequest,
-    current_user: CurrentUser
+    current_user: CurrentUser,
+    db: Session = Depends(get_db)
 ):
     """
     Sync goals from mobile app.
     Stores goals with target amounts/dates for AI-powered budgeting.
     """
     user_id = str(current_user.id)
+    ctx = ContextManager(db)
+    
     # Format goals for storage
     goals_to_store = []
     for goal in request.goals:
@@ -56,14 +59,14 @@ async def sync_goals(
         goals_to_store.append(goal_data)
     
     # Save to user context (creates/updates goals JSONB)
-    await context_manager.save_goals(user_id, goals_to_store)
+    await ctx.save_goals(user_id, goals_to_store)
     
     # Return enriched goals with calculated monthly savings
-    enriched_goals = await context_manager.load_goals(user_id)
+    enriched_goals = await ctx.load_goals(user_id)
     
     return GoalsSyncResponse(
         synced_count=len(goals_to_store),
-        goals=enriched_goals
+        goals=enriched_goals or []
     )
 
 

@@ -236,10 +236,14 @@ export default function ProfileScreen() {
           activeOpacity={0.8}
           onPress={async () => {
             try {
-              await AsyncStorage.removeItem('is_onboarded');
-              router.replace('/onboarding');
+              // Clear auth tokens via API
+              await api.logout();
+              // Redirect to login
+              router.replace('/(auth)/login');
             } catch (e) {
               console.error('Logout failed', e);
+              // Even if API fails, redirect to login
+              router.replace('/(auth)/login');
             }
           }}
         >
