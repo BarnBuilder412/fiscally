@@ -326,10 +326,11 @@ When implementing features:
 
 ## Current Development Status (Handoff)
 
-### Where we are (as of 2026-01-30)
-- Backend foundation is complete: auth + DB schema + migrations are in place.
-- AI scaffolding exists (`backend/app/ai/`), but is not fully wired to DB yet (`ContextManager` has TODO stubs).
-- We are entering **Phase 2: Core Transaction Flow**.
+### Where we are (as of 2026-02-06)
+- **Trends Page Refined**: Expandable categories, top-3 view, and agentic sub-categorization implemented.
+- **Home Page Enhanced**: Added "Agentic Coach" card and goal tracking visualization.
+- **Backend Foundation**: Auth, DB, and basic API endpoints are stable.
+- **Next Focus**: Advanced AI integration (SMS parsing, pattern detection) and Voice Input.
 
 ### How to keep development “continuous” across multiple agents
 - Treat this file (`AGENTS.md`) as the shared handoff doc:
@@ -516,7 +517,7 @@ Example created data:
 
 ---
 
-## Mobile App Status (Updated 2026-02-02)
+## Mobile App Status (Updated 2026-02-06)
 
 ### Phase: UI/UX Refactoring ✅ COMPLETED
 
@@ -568,7 +569,14 @@ The mobile app underwent a major UI refactoring to implement a new "Stitch" crea
 ##### Home Screen Updates ✅
 - Removed floating AddExpenseButton (now in custom tab bar)
 - Adjusted scroll padding for new tab bar height
-- Removed unused handlers and styles
+- Added "Agentic Coach" card with dynamic, context-aware tips
+- Integrated Goal tracking visualization
+
+##### Trends Page Refinements (2026-02-06) ✅
+- **Agentic Sub-categorization**: Automatically groups sub-categories under parents (e.g., "Swiggy" -> Food Delivery).
+- **Expandable Lists**: Tap categories to reveal transaction details/sub-categories.
+- **Top 3 View**: Shows top 3 categories by default with "Show More" toggle to reduce clutter.
+- **Actionable Insights**: Enhanced tip card with budget warnings and saving opportunities.
 
 #### Mobile File Structure (Current)
 ```
@@ -601,12 +609,10 @@ The UI follows the "Stitch" design system from HTML mockups in:
 - `stitch_home_dashboard (8)/` - SMS permission onboarding
 
 #### Remaining Mobile Work
-- [ ] Polish transitions and animations
-- [ ] Implement actual data fetching (connect to backend API)
-- [ ] Add loading states and error handling
 - [ ] Implement SMS parsing (Android)
 - [ ] Voice input integration with backend
 - [ ] Push notifications setup
+- [ ] Polish transitions and animations
 
 #### Commands
 ```bash
