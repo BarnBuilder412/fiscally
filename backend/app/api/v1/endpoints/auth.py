@@ -26,6 +26,7 @@ from app.core.security import (
     verify_token_hash,
 )
 from app.config import get_settings
+from app.services.localization import apply_profile_location_defaults
 
 router = APIRouter()
 settings = get_settings()
@@ -50,11 +51,14 @@ async def signup(request: SignupRequest, db: Annotated[Session, Depends(get_db)]
         )
     
     # Create new user
+    default_profile = apply_profile_location_defaults({
+        "preferences": {"location_budgeting_enabled": False},
+    })
     user = User(
         email=request.email,
         hashed_password=hash_password(request.password),
         # Initialize empty context JSONB fields
-        profile={},
+        profile=default_profile,
         patterns={},
         insights={},
         goals={},

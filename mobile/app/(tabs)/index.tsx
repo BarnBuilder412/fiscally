@@ -26,7 +26,7 @@ import { Card, SmartAlerts } from '@/components';
 import { api } from '@/services/api';
 import { Transaction } from '@/types';
 import { eventBus, Events } from '@/services/eventBus';
-import { formatCurrency as formatMoney, getCurrencySymbol } from '@/utils/currency';
+import { formatCurrency as formatMoney, getCurrencySymbol, getLocaleForCurrency } from '@/utils/currency';
 
 const { width } = Dimensions.get('window');
 
@@ -66,7 +66,7 @@ const GoalCard = ({
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return null;
     const date = new Date(dateStr);
-    return date.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+    return date.toLocaleDateString(getLocaleForCurrency(currencyCode), { month: 'short', year: 'numeric' });
   };
 
   // Determine status display
@@ -556,6 +556,7 @@ export default function HomeScreen() {
           <SmartAlerts
             transactions={transactions}
             budgetPercentage={budgetPercentage}
+            primaryCurrency={userCurrency}
             onViewTransaction={(t) => router.push('/transactions')}
           />
         </View>

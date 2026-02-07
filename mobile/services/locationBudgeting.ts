@@ -15,6 +15,30 @@ const COUNTRY_TO_CURRENCY: Record<string, string> = {
   IT: 'EUR',
 };
 
+const METRO_CITIES = new Set([
+  'mumbai',
+  'new delhi',
+  'delhi',
+  'bengaluru',
+  'bangalore',
+  'hyderabad',
+  'chennai',
+  'pune',
+  'kolkata',
+  'gurugram',
+  'gurgaon',
+  'noida',
+  'new york',
+  'san francisco',
+  'los angeles',
+  'london',
+  'dubai',
+  'singapore',
+  'toronto',
+  'sydney',
+  'berlin',
+]);
+
 export type LocationBudgetingResult = {
   granted: boolean;
   city?: string;
@@ -26,6 +50,13 @@ export type LocationBudgetingResult = {
 export const inferCurrencyFromCountry = (countryCode?: string) => {
   if (!countryCode) return 'INR';
   return COUNTRY_TO_CURRENCY[countryCode.toUpperCase()] || 'INR';
+};
+
+const inferLocalityTier = (city?: string, region?: string): 'metro' | 'urban' | 'suburban' => {
+  const normalizedCity = (city || '').trim().toLowerCase();
+  if (METRO_CITIES.has(normalizedCity)) return 'metro';
+  if ((region || '').trim().length > 0) return 'urban';
+  return 'suburban';
 };
 
 export const enableLocationAwareBudgeting = async (): Promise<LocationBudgetingResult> => {
@@ -44,6 +75,7 @@ export const enableLocationAwareBudgeting = async (): Promise<LocationBudgetingR
   const first = geocode?.[0];
   const countryCode = first?.isoCountryCode?.toUpperCase();
   const currency = inferCurrencyFromCountry(countryCode);
+  const localityTier = inferLocalityTier(first?.city || first?.subregion, first?.region);
 
   await api.updateProfile({
     profile: {
@@ -57,6 +89,7 @@ export const enableLocationAwareBudgeting = async (): Promise<LocationBudgetingR
         region: first?.region || undefined,
         country: first?.country || undefined,
         country_code: countryCode,
+        locality_tier: localityTier,
         latitude: Number(position.coords.latitude.toFixed(4)),
         longitude: Number(position.coords.longitude.toFixed(4)),
         updated_at: new Date().toISOString(),
@@ -75,4 +108,3 @@ export const enableLocationAwareBudgeting = async (): Promise<LocationBudgetingR
     currency,
   };
 };
-

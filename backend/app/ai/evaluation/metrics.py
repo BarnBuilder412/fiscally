@@ -3,7 +3,8 @@ Custom Opik Evaluation Metrics for Fiscally
 =============================================
 Domain-specific metrics for financial assistant evaluation.
 """
-from typing import Any, Dict, Optional
+import re
+from typing import Any, Dict
 from opik.evaluation.metrics import base_metric, score_result
 from opik.evaluation.metrics import Hallucination, AnswerRelevance
 
@@ -52,6 +53,28 @@ class ConfidenceCalibration(base_metric.BaseMetric):
             value=score,
             name=self.name,
             reason=f"Confidence: {confidence:.2f}, Min required: {min_confidence}"
+        )
+
+
+class SpendClassAccuracy(base_metric.BaseMetric):
+    """Check if predicted need/want/luxury class matches expected output."""
+
+    name = "spend_class_accuracy"
+
+    def score(
+        self,
+        output: Dict[str, Any],
+        expected_output: Dict[str, Any],
+        **kwargs
+    ) -> score_result.ScoreResult:
+        predicted = str(output.get("spend_class", "")).lower()
+        expected = str(expected_output.get("spend_class", "")).lower()
+        score = 1.0 if predicted == expected else 0.0
+
+        return score_result.ScoreResult(
+            value=score,
+            name=self.name,
+            reason=f"Predicted: {predicted}, Expected: {expected}",
         )
 
 
@@ -229,8 +252,6 @@ class SpecificNumbersMetric(base_metric.BaseMetric):
         output: str,
         **kwargs
     ) -> score_result.ScoreResult:
-        import re
-        
         if not isinstance(output, str):
             output = str(output)
         
@@ -255,15 +276,65 @@ class SpecificNumbersMetric(base_metric.BaseMetric):
         )
 
 
+class ReceiptParsingAccuracy(base_metric.BaseMetric):
+    """Check receipt parser quality for amount/category/merchant extraction."""
+
+    name = "receipt_parsing_accuracy"
+
+    def score(
+        self,
+        output: Dict[str, Any],
+        expected_output: Dict[str, Any],
+        **kwargs
+    ) -> score_result.ScoreResult:
+        scores = []
+        reasons = []
+
+        parsed_amount = output.get("amount", 0) or 0
+        expected_amount = expected_output.get("amount", 0) or 0
+        try:
+            parsed_amount = float(parsed_amount)
+            expected_amount = float(expected_amount)
+        except (TypeError, ValueError):
+            parsed_amount = 0.0
+            expected_amount = 0.0
+        amount_match = abs(parsed_amount - expected_amount) < max(1.0, expected_amount * 0.03)
+        scores.append(1.0 if amount_match else 0.0)
+        reasons.append(f"Amount: {parsed_amount} vs {expected_amount}")
+
+        expected_category = str(expected_output.get("category", "")).lower()
+        if expected_category:
+            parsed_category = str(output.get("category", "")).lower()
+            category_match = parsed_category == expected_category
+            scores.append(1.0 if category_match else 0.0)
+            reasons.append(f"Category: {parsed_category} vs {expected_category}")
+
+        expected_merchant = str(expected_output.get("merchant", "")).lower()
+        if expected_merchant:
+            parsed_merchant = str(output.get("merchant", "")).lower()
+            merchant_match = expected_merchant in parsed_merchant or parsed_merchant in expected_merchant
+            scores.append(1.0 if merchant_match else 0.0)
+            reasons.append(f"Merchant: {parsed_merchant} vs {expected_merchant}")
+
+        avg_score = sum(scores) / len(scores) if scores else 0.0
+        return score_result.ScoreResult(
+            value=avg_score,
+            name=self.name,
+            reason=" | ".join(reasons),
+        )
+
+
 # Convenience function to get all Fiscally metrics
 def get_fiscally_metrics():
     """Get all custom Fiscally evaluation metrics."""
     return [
         CategoryAccuracy(),
         ConfidenceCalibration(),
+        SpendClassAccuracy(),
         CurrencyIndicatorUsage(),
         ResponseConciseness(),
         VoiceParsingAccuracy(),
+        ReceiptParsingAccuracy(),
         ToneAppropriatenessMetric(),
         SpecificNumbersMetric(),
     ]
@@ -285,5 +356,21 @@ def get_categorization_metrics():
     """Get metrics specifically for categorization evaluation."""
     return [
         CategoryAccuracy(),
+        ConfidenceCalibration(),
+    ]
+
+
+def get_spend_class_metrics():
+    """Get metrics specifically for needs/wants/luxury classification."""
+    return [
+        SpendClassAccuracy(),
+        ConfidenceCalibration(),
+    ]
+
+
+def get_receipt_metrics():
+    """Get metrics specifically for receipt parsing."""
+    return [
+        ReceiptParsingAccuracy(),
         ConfidenceCalibration(),
     ]

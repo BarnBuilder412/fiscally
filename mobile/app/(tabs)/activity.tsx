@@ -25,7 +25,7 @@ import { Card, TransactionItem } from '@/components';
 import { api } from '@/services/api';
 import { Transaction } from '@/types';
 import { eventBus, Events } from '@/services/eventBus';
-import { formatCurrency as formatMoney } from '@/utils/currency';
+import { formatCurrency as formatMoney, getLocaleForCurrency } from '@/utils/currency';
 
 export default function ActivityScreen() {
     const router = useRouter();
@@ -165,6 +165,7 @@ export default function ActivityScreen() {
 
     const primaryCurrency = transactions[0]?.currency || 'INR';
     const formatCurrency = (amount: number) => formatMoney(amount, primaryCurrency);
+    const primaryLocale = getLocaleForCurrency(primaryCurrency);
 
     // Generate contextual agentic tips based on transaction patterns
     useEffect(() => {
@@ -239,7 +240,7 @@ export default function ActivityScreen() {
         } else if (date.toDateString() === yesterday.toDateString()) {
             dateLabel = 'Yesterday';
         } else {
-            dateLabel = date.toLocaleDateString('en-IN', {
+            dateLabel = date.toLocaleDateString(primaryLocale, {
                 weekday: 'long',
                 day: 'numeric',
                 month: 'short',

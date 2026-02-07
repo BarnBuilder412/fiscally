@@ -214,8 +214,9 @@ All endpoints follow `/api/v1/` convention:
 - `PATCH /api/v1/profile` - Update user preferences
 
 ### Transactions
-- `GET /api/v1/transactions?limit=50&offset=0&category=food` - List with filters
+- `GET /api/v1/transactions?limit=50&offset=0&category=food&source=sms&spend_class=need&is_anomaly=false` - List with filters
 - `POST /api/v1/transactions` - Create transaction (manual or SMS-parsed)
+- `POST /api/v1/transactions/sms/batch` - Batch ingest parsed Android SMS transactions with duplicate suppression
 - `PATCH /api/v1/transactions/{id}` - Update transaction fields
 - `DELETE /api/v1/transactions/{id}` - Delete transaction
 - `POST /api/v1/transactions/voice` - Parse voice audio (Whisper + LLM)
@@ -671,9 +672,11 @@ The UI follows the "Stitch" design system from HTML mockups in:
 - Added transaction enrichment fields: `spend_class`, `spend_class_confidence`, `spend_class_reason`, `opik_trace_id`.
 - Added robust transaction PATCH body schema and fixed delete endpoint duplicate code bug.
 - Added receipt ingestion endpoint (`POST /api/v1/transactions/receipt`) for image/PDF auto-add.
+- Added SMS batch ingest endpoint (`POST /api/v1/transactions/sms/batch`) with duplicate suppression + AI enrichment.
 - Added dedicated insights route (`GET /api/v1/insights`) while keeping chat insights compatibility.
-- Added chat feedback endpoint + category-correction feedback wiring to Opik.
-- Added localization/PPP helper service and profile auto-defaulting for currency/locale from location.
+- Added chat feedback endpoint + category/spend-class correction feedback wiring to Opik.
+- Added localization/PPP helper service with locality tier multipliers and profile auto-defaulting for currency/locale from location.
+- Expanded Opik evaluation scaffolding with spend-class + receipt parsing datasets/metrics/rules.
 
 ##### Mobile Upgrades
 - Added CRUD wiring (`updateTransaction`, `deleteTransaction`) and in-app edit transaction flow.
@@ -681,6 +684,7 @@ The UI follows the "Stitch" design system from HTML mockups in:
 - Added Android SMS tracking service with permissions, parsing, dedupe, and periodic sync.
 - Added location-aware budgeting toggle and profile currency visibility.
 - Added spend-class visualization in transaction item and Trends "Lifestyle Mix".
+- Added spend-class transaction filters in full history screen and reduced alert noise with priority-based SmartAlerts.
 
 #### Commands
 ```bash

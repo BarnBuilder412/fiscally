@@ -18,6 +18,74 @@ COUNTRY_CONFIG: Dict[str, Dict[str, Any]] = {
 
 DEFAULT_COUNTRY = "IN"
 
+# Locality adjustment factors used only when location-aware budgeting is enabled.
+LOCALITY_TIER_MULTIPLIERS: Dict[str, float] = {
+    "metro": 1.12,
+    "urban": 1.05,
+    "suburban": 0.98,
+    "rural": 0.90,
+}
+
+# City aliases to infer a metro tier when explicit tier is not provided.
+METRO_CITY_ALIASES = {
+    "mumbai",
+    "new delhi",
+    "delhi",
+    "bengaluru",
+    "bangalore",
+    "hyderabad",
+    "chennai",
+    "pune",
+    "kolkata",
+    "gurugram",
+    "gurgaon",
+    "noida",
+    "new york",
+    "san francisco",
+    "los angeles",
+    "london",
+    "dubai",
+    "singapore",
+    "toronto",
+    "sydney",
+    "berlin",
+}
+
+
+def _normalize_city(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip().lower()
+
+
+def _is_location_budgeting_enabled(profile: Dict[str, Any]) -> bool:
+    preferences = profile.get("preferences", {}) if isinstance(profile.get("preferences"), dict) else {}
+    return bool(preferences.get("location_budgeting_enabled"))
+
+
+def _infer_locality_tier(location: Dict[str, Any]) -> str:
+    explicit = str(location.get("locality_tier", "")).strip().lower()
+    if explicit in LOCALITY_TIER_MULTIPLIERS:
+        return explicit
+
+    city = _normalize_city(location.get("city"))
+    if city in METRO_CITY_ALIASES:
+        return "metro"
+    return "urban"
+
+
+def _resolve_locality_multiplier(location: Dict[str, Any]) -> float:
+    raw = location.get("locality_multiplier")
+    try:
+        parsed = float(raw)
+        if parsed > 0:
+            return parsed
+    except (TypeError, ValueError):
+        pass
+
+    tier = _infer_locality_tier(location)
+    return LOCALITY_TIER_MULTIPLIERS.get(tier, 1.0)
+
 
 def get_country_config(country_code: str | None) -> Dict[str, Any]:
     """Return localization config for country code with fallback."""
@@ -46,6 +114,8 @@ def apply_profile_location_defaults(profile: Dict[str, Any]) -> Dict[str, Any]:
     if not identity.get("locale"):
         identity["locale"] = config["locale"]
 
+    location.setdefault("locality_tier", _infer_locality_tier(location))
+    location.setdefault("locality_multiplier", _resolve_locality_multiplier(location))
     location.setdefault("ppp_multiplier", config["ppp_multiplier"])
     profile["identity"] = identity
     profile["location"] = location
@@ -53,12 +123,21 @@ def apply_profile_location_defaults(profile: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def get_profile_ppp_multiplier(profile: Dict[str, Any]) -> float:
-    """Get budget multiplier for locale/PPP-aware planning."""
+    """
+    Get budget multiplier for locale/PPP-aware planning.
+
+    Returns `1.0` when location-aware budgeting is disabled.
+    """
+    if not _is_location_budgeting_enabled(profile):
+        return 1.0
+
     location = profile.get("location", {}) if isinstance(profile.get("location"), dict) else {}
     raw = location.get("ppp_multiplier")
     try:
-        return float(raw)
+        base_multiplier = float(raw)
     except (TypeError, ValueError):
-        pass
-    config = get_country_config(location.get("country_code"))
-    return float(config["ppp_multiplier"])
+        config = get_country_config(location.get("country_code"))
+        base_multiplier = float(config["ppp_multiplier"])
+
+    locality_multiplier = _resolve_locality_multiplier(location)
+    return round(base_multiplier * locality_multiplier, 4)

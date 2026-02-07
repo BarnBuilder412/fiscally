@@ -28,6 +28,7 @@ import { Button } from '@/components';
 import { api } from '@/services/api';
 import { useResponsive } from '@/hooks';
 import { eventBus, Events } from '@/services/eventBus';
+import { getCurrencySymbol } from '@/utils/currency';
 
 export default function AddExpenseScreen() {
   const router = useRouter();
@@ -40,6 +41,7 @@ export default function AddExpenseScreen() {
   const [note, setNote] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [currencyCode, setCurrencyCode] = useState('INR');
 
   // Track keyboard visibility
   useEffect(() => {
@@ -49,6 +51,19 @@ export default function AddExpenseScreen() {
       showSub.remove();
       hideSub.remove();
     };
+  }, []);
+
+  useEffect(() => {
+    const loadCurrency = async () => {
+      try {
+        const profile = await api.getProfile();
+        const code = profile?.profile?.identity?.currency || profile?.profile?.currency;
+        if (code) setCurrencyCode(String(code).toUpperCase());
+      } catch {
+        // Keep default currency fallback.
+      }
+    };
+    loadCurrency();
   }, []);
 
   const handleCategorySelect = (categoryId: string) => {
@@ -77,6 +92,7 @@ export default function AddExpenseScreen() {
     try {
       await api.createTransaction({
         amount: parseFloat(amount),
+        currency: currencyCode,
         merchant: note || 'Manual Expense', // Using note as merchant/description for now
         category: selectedCategory,
         note: note,
@@ -128,7 +144,7 @@ export default function AddExpenseScreen() {
         >
           {/* Amount Input */}
           <View style={styles.amountContainer}>
-            <Text style={styles.currencySymbol}>₹</Text>
+            <Text style={styles.currencySymbol}>{getCurrencySymbol(currencyCode)}</Text>
             <TextInput
               style={styles.amountInput}
               placeholder="0"

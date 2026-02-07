@@ -18,6 +18,7 @@ interface Alert {
 interface SmartAlertsProps {
     transactions: Transaction[];
     budgetPercentage: number;
+    primaryCurrency?: string;
     onDismiss?: (alertId: string) => void;
     onViewTransaction?: (transaction: Transaction) => void;
 }
@@ -32,47 +33,18 @@ const ALERT_CONFIGS = {
 export const SmartAlerts = ({
     transactions,
     budgetPercentage,
+    primaryCurrency,
     onDismiss,
     onViewTransaction,
 }: SmartAlertsProps) => {
     const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
+    const effectiveCurrency = primaryCurrency || transactions[0]?.currency || 'INR';
 
     // Generate alerts from data
     const generateAlerts = (): Alert[] => {
         const alerts: Alert[] = [];
 
-        // Anomaly alerts from transactions
-        transactions
-            .filter(t => t.is_anomaly && !dismissedIds.has(`anomaly-${t.id}`))
-            .slice(0, 2) // Limit to 2 most recent anomalies
-            .forEach(t => {
-                alerts.push({
-                    id: `anomaly-${t.id}`,
-                    type: 'anomaly',
-                    title: 'Unusual Transaction',
-                    message: t.anomaly_reason || `${formatCurrency(t.amount, t.currency || 'INR')} at ${t.merchant || 'Unknown'}`,
-                    severity: 'warning',
-                    transaction: t,
-                    actionable: true,
-                });
-            });
-
-        // Spending mix alerts
-        const luxuryTransactions = transactions.filter(t => t.spend_class === 'luxury');
-        const luxuryTotal = luxuryTransactions.reduce((sum, t) => sum + t.amount, 0);
-        const total = transactions.reduce((sum, t) => sum + t.amount, 0);
-        const luxuryShare = total > 0 ? (luxuryTotal / total) * 100 : 0;
-        if (luxuryTransactions.length >= 3 && luxuryShare >= 40 && !dismissedIds.has('luxury-share')) {
-            alerts.push({
-                id: 'luxury-share',
-                type: 'tip',
-                title: 'Lifestyle Spend Alert',
-                message: `${Math.round(luxuryShare)}% of recent spend is luxury-tagged. Review if this aligns with your goals.`,
-                severity: 'info',
-            });
-        }
-
-        // Budget alerts
+        // Budget alerts get highest priority.
         if (budgetPercentage >= 100 && !dismissedIds.has('budget-exceeded')) {
             alerts.push({
                 id: 'budget-exceeded',
@@ -91,7 +63,46 @@ export const SmartAlerts = ({
             });
         }
 
-        return alerts;
+        // Add only the most recent anomaly to reduce noise.
+        const anomaly = transactions
+            .filter(t => t.is_anomaly && !dismissedIds.has(`anomaly-${t.id}`))
+            .sort((a, b) => new Date(b.transaction_at || b.created_at).getTime() - new Date(a.transaction_at || a.created_at).getTime())[0];
+        if (anomaly) {
+            alerts.push({
+                id: `anomaly-${anomaly.id}`,
+                type: 'anomaly',
+                title: 'Unusual Transaction',
+                message: anomaly.anomaly_reason || `${formatCurrency(anomaly.amount, anomaly.currency || effectiveCurrency)} at ${anomaly.merchant || 'Unknown'}`,
+                severity: 'warning',
+                transaction: anomaly,
+                actionable: true,
+            });
+        }
+
+        // Spending mix alerts are informational and shown only when no critical/warning overload.
+        const luxuryTransactions = transactions.filter(t => t.spend_class === 'luxury');
+        const luxuryTotal = luxuryTransactions.reduce((sum, t) => sum + t.amount, 0);
+        const total = transactions.reduce((sum, t) => sum + t.amount, 0);
+        const luxuryShare = total > 0 ? (luxuryTotal / total) * 100 : 0;
+        if (
+            alerts.length < 2
+            && luxuryTransactions.length >= 3
+            && luxuryShare >= 40
+            && !dismissedIds.has('luxury-share')
+        ) {
+            alerts.push({
+                id: 'luxury-share',
+                type: 'tip',
+                title: 'Lifestyle Spend Alert',
+                message: `${Math.round(luxuryShare)}% of recent spend is luxury-tagged. Review if this aligns with your goals.`,
+                severity: 'info',
+            });
+        }
+
+        const severityRank = { critical: 0, warning: 1, info: 2 };
+        return alerts
+            .sort((a, b) => severityRank[a.severity] - severityRank[b.severity])
+            .slice(0, 2);
     };
 
     const alerts = generateAlerts();

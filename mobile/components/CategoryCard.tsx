@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, useWindowDimensions } from 'r
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize, FontWeight, BorderRadius, Shadows } from '@/constants/theme';
 import { getCategoryIcon, getCategoryColor, getCategoryById } from '@/constants/categories';
+import { getCurrencySymbol } from '@/utils/currency';
 
 interface CategoryCardProps {
   categoryId: string;
@@ -11,6 +12,7 @@ interface CategoryCardProps {
   onPress?: () => void;
   selected?: boolean;
   compact?: boolean;
+  currencyCode?: string;
 }
 
 export function CategoryCard({ 
@@ -20,18 +22,20 @@ export function CategoryCard({
   onPress, 
   selected = false,
   compact = false,
+  currencyCode = 'INR',
 }: CategoryCardProps) {
   const category = getCategoryById(categoryId);
   const color = getCategoryColor(categoryId);
+  const symbol = getCurrencySymbol(currencyCode);
   
   const formatAmount = (amt: number) => {
     if (amt >= 100000) {
-      return `₹${(amt / 100000).toFixed(1)}L`;
+      return `${symbol}${(amt / 100000).toFixed(1)}L`;
     }
     if (amt >= 1000) {
-      return `₹${(amt / 1000).toFixed(1)}k`;
+      return `${symbol}${(amt / 1000).toFixed(1)}k`;
     }
-    return `₹${amt}`;
+    return `${symbol}${amt}`;
   };
 
   if (compact) {

@@ -15,6 +15,7 @@ export interface Transaction {
   merchant?: string;
   category: string;
   note?: string;
+  raw_sms?: string;
   source: 'manual' | 'voice' | 'sms' | 'receipt';
   spend_class?: 'need' | 'want' | 'luxury';
   spend_class_confidence?: string;

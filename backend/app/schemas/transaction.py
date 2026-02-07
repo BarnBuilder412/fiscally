@@ -38,7 +38,12 @@ class TransactionCreate(BaseModel):
     merchant: Optional[str] = Field(None, max_length=255, description="Merchant/vendor name")
     category: Optional[str] = Field(None, max_length=100, description="Expense category")
     note: Optional[str] = Field(None, description="Optional note about the transaction")
-    source: TransactionSource = Field(..., description="How transaction was added: manual, voice, or sms")
+    raw_sms: Optional[str] = Field(
+        None,
+        max_length=4000,
+        description="Original SMS body when source='sms'",
+    )
+    source: TransactionSource = Field(..., description="How transaction was added: manual, voice, sms, or receipt")
     spend_class: Optional[SpendClass] = Field(
         None,
         description="Optional manual classification into need/want/luxury",
@@ -181,6 +186,50 @@ class ReceiptTransactionResponse(BaseModel):
     spend_class: Optional[SpendClass] = None
     confidence: float
     needs_review: bool = False
+    duplicate_suspected: bool = False
     reason: Optional[str] = None
     transaction: Optional[TransactionResponse] = None
     extracted_items: Optional[list[dict[str, Any]]] = None
+
+
+class SmsTransactionIngestItem(BaseModel):
+    """Single parsed SMS transaction payload for batch ingestion."""
+
+    amount: Decimal = Field(..., decimal_places=2)
+    currency: str = Field(default="INR", max_length=10)
+    merchant: Optional[str] = Field(default=None, max_length=255)
+    category: Optional[str] = Field(default=None, max_length=100)
+    transaction_at: Optional[datetime] = None
+    raw_sms: Optional[str] = Field(default=None, max_length=4000)
+    sms_sender: Optional[str] = Field(default=None, max_length=100)
+    dedupe_key: Optional[str] = Field(default=None, max_length=255)
+
+    @field_validator("amount")
+    @classmethod
+    def validate_sms_amount(cls, v: Decimal) -> Decimal:
+        if v <= 0:
+            raise ValueError("Amount must be positive")
+        return v
+
+    @field_validator("category")
+    @classmethod
+    def validate_sms_category(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in VALID_CATEGORIES:
+            raise ValueError(f"Invalid category. Must be one of: {', '.join(VALID_CATEGORIES)}")
+        return v
+
+
+class SmsBatchIngestRequest(BaseModel):
+    """Batch payload for parsed SMS transactions."""
+
+    transactions: list[SmsTransactionIngestItem]
+
+
+class SmsBatchIngestResponse(BaseModel):
+    """Result summary for SMS batch ingestion."""
+
+    received_count: int
+    created_count: int
+    duplicate_count: int
+    failed_count: int
+    created_transaction_ids: list[str]

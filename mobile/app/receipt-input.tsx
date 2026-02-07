@@ -31,9 +31,10 @@ export default function ReceiptInputScreen() {
       eventBus.emit(Events.TRANSACTION_ADDED);
       const amount = formatCurrency(result.amount, result.currency || 'INR');
       const merchant = result.merchant || 'Unknown merchant';
+      const duplicateNote = result.duplicate_suspected ? '\nDuplicate detected: reused existing expense entry.' : '';
       Alert.alert(
         'Expense Added',
-        `${amount} at ${merchant}\nCategory: ${result.category.replace('_', ' ')}${result.needs_review ? '\nMarked for review due to low confidence.' : ''}`,
+        `${amount} at ${merchant}\nCategory: ${result.category.replace('_', ' ')}${result.needs_review ? '\nMarked for review due to low confidence.' : ''}${duplicateNote}`,
         [{ text: 'Done', onPress: () => router.replace('/(tabs)') }]
       );
     } catch (error: any) {
@@ -210,4 +211,3 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.medium,
   },
 });
-

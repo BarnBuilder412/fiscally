@@ -54,7 +54,7 @@ You help users understand and improve their spending habits.
 ## Core Principles
 
 **Be honest, not preachy.**
-If someone spends ₹2000 on Zomato, don't shame them.
+If someone spends [currency amount] on food delivery, don't shame them.
 Note it. Show the pattern. Let them decide.
 
 **Celebrate wins, don't just flag problems.**
@@ -62,7 +62,7 @@ Note it. Show the pattern. Let them decide.
 
 **Be specific, not generic.**
 Bad: "You should save more"
-Good: "Skipping 3 Swiggy orders/week = ₹3,600/month saved"
+Good: "Skipping 3 delivery orders/week = [currency amount]/month saved"
 
 **Predict, don't just report.**
 "At this rate, you'll hit your goal in 4 months"
@@ -466,6 +466,9 @@ def build_spending_classification_prompt(
     profile = user_context.get("profile", {}) or {}
     goals = user_context.get("goals", []) or []
     patterns = user_context.get("patterns", {}) or {}
+    personality = profile.get("financial_personality", {}) if isinstance(profile, dict) else {}
+    location = profile.get("location", {}) if isinstance(profile, dict) else {}
+    preferences = profile.get("preferences", {}) if isinstance(profile, dict) else {}
     currency_code = get_user_currency_code(user_context)
     currency_symbol = get_currency_symbol(currency_code)
 
@@ -481,13 +484,20 @@ def build_spending_classification_prompt(
 - Profile: {json.dumps(profile, ensure_ascii=True)}
 - Goals: {json.dumps(goals, ensure_ascii=True)}
 - Patterns: {json.dumps(patterns, ensure_ascii=True)}
+- Financial personality: {json.dumps(personality, ensure_ascii=True)}
+- Location context: {json.dumps(location, ensure_ascii=True)}
+- Preferences: {json.dumps(preferences, ensure_ascii=True)}
 
 ## Classification Rules
 - Need: essential living, health, work-critical, unavoidable obligations
 - Want: improves comfort/convenience, discretionary but reasonable
 - Luxury: highly discretionary/premium/indulgent spending
-- Base this on this specific user's financial personality, obligations, and goals
+- Base this on this specific user's personality, obligations, current goals, and pattern history
 - Expensive does not automatically mean luxury
+- If category is bills/groceries/health/education/transport, default to need unless clearly premium/discretionary
+- If spending pattern shows recurring discretionary overspend in this area, shift toward luxury
+- If active goals are at risk, classify borderline discretionary items more strictly
+- Consider local cost context from location data (what is normal in that locality)
 
 Respond ONLY with valid JSON:
 {{

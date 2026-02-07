@@ -12,10 +12,12 @@ interface TransactionState {
   hasMore: boolean;
   currentOffset: number;
   currentCategory: string | null;
+  currentSpendClass: 'need' | 'want' | 'luxury' | null;
 
   fetchTransactions: (params?: {
     limit?: number;
     category?: string;
+    spend_class?: 'need' | 'want' | 'luxury';
     reset?: boolean;
   }) => Promise<void>;
   fetchMoreTransactions: () => Promise<void>;
@@ -64,19 +66,27 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
   hasMore: false,
   currentOffset: 0,
   currentCategory: null,
+  currentSpendClass: null,
 
   fetchTransactions: async (params) => {
-    const { reset = true, limit = PAGE_SIZE, category } = params || {};
+    const { reset = true, limit = PAGE_SIZE, category, spend_class } = params || {};
 
     if (reset) {
-      set({ isLoading: true, error: null, currentOffset: 0, currentCategory: category || null });
+      set({
+        isLoading: true,
+        error: null,
+        currentOffset: 0,
+        currentCategory: category || null,
+        currentSpendClass: spend_class || null,
+      });
     }
 
     try {
       const response = await api.getTransactions({
         limit,
         offset: 0,
-        category: category || undefined
+        category: category || undefined,
+        spend_class: spend_class || undefined,
       });
 
       set({
@@ -95,7 +105,7 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
   },
 
   fetchMoreTransactions: async () => {
-    const { hasMore, isLoadingMore, currentOffset, currentCategory } = get();
+    const { hasMore, isLoadingMore, currentOffset, currentCategory, currentSpendClass } = get();
 
     if (!hasMore || isLoadingMore) return;
 
@@ -105,7 +115,8 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
       const response = await api.getTransactions({
         limit: PAGE_SIZE,
         offset: currentOffset,
-        category: currentCategory || undefined
+        category: currentCategory || undefined,
+        spend_class: currentSpendClass || undefined,
       });
 
       set((state) => ({
@@ -200,6 +211,7 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
     total: 0,
     hasMore: false,
     currentOffset: 0,
-    currentCategory: null
+    currentCategory: null,
+    currentSpendClass: null,
   }),
 }));

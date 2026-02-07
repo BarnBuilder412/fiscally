@@ -19,13 +19,14 @@ import {
 } from '@/constants/theme';
 import { eventBus, Events } from '@/services/eventBus';
 import { api } from '@/services/api';
+import { formatCurrency } from '@/utils/currency';
 
 const BUDGET_RANGES = [
-    { id: 'below_20k', label: 'Below ₹20,000', description: 'Tight budget, focus on essentials' },
-    { id: '20k_40k', label: '₹20,000 - ₹40,000', description: 'Moderate spending' },
-    { id: '40k_70k', label: '₹40,000 - ₹70,000', description: 'Comfortable budget' },
-    { id: '70k_100k', label: '₹70,000 - ₹1,00,000', description: 'Flexible spending' },
-    { id: 'above_100k', label: 'Above ₹1,00,000', description: 'Premium lifestyle' },
+    { id: 'below_20k', min: 0, max: 20000, description: 'Tight budget, focus on essentials' },
+    { id: '20k_40k', min: 20000, max: 40000, description: 'Moderate spending' },
+    { id: '40k_70k', min: 40000, max: 70000, description: 'Comfortable budget' },
+    { id: '70k_100k', min: 70000, max: 100000, description: 'Flexible spending' },
+    { id: 'above_100k', min: 100000, max: null, description: 'Premium lifestyle' },
 ];
 
 export default function BudgetPreferencesScreen() {
@@ -33,14 +34,36 @@ export default function BudgetPreferencesScreen() {
     const insets = useSafeAreaInsets();
     const [selectedBudget, setSelectedBudget] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
+    const [currencyCode, setCurrencyCode] = useState('INR');
 
     useEffect(() => {
         loadSavedBudget();
+        loadCurrency();
     }, []);
 
     const loadSavedBudget = async () => {
         const saved = await AsyncStorage.getItem('user_budget');
         if (saved) setSelectedBudget(saved);
+    };
+
+    const loadCurrency = async () => {
+        try {
+            const profile = await api.getProfile();
+            const code = profile?.profile?.identity?.currency || profile?.profile?.currency;
+            if (code) setCurrencyCode(String(code).toUpperCase());
+        } catch {
+            // Keep default currency fallback.
+        }
+    };
+
+    const formatRangeLabel = (range: { min: number; max: number | null }) => {
+        if (range.max === null) {
+            return `Above ${formatCurrency(range.min, currencyCode)}`;
+        }
+        if (range.min <= 0) {
+            return `Below ${formatCurrency(range.max, currencyCode)}`;
+        }
+        return `${formatCurrency(range.min, currencyCode)} - ${formatCurrency(range.max, currencyCode)}`;
     };
 
     const saveBudget = async () => {
@@ -105,7 +128,7 @@ export default function BudgetPreferencesScreen() {
                                     styles.optionLabel,
                                     selectedBudget === range.id && styles.optionLabelSelected,
                                 ]}>
-                                    {range.label}
+                                    {formatRangeLabel(range)}
                                 </Text>
                                 <Text style={styles.optionDescription}>{range.description}</Text>
                             </View>

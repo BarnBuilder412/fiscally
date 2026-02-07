@@ -27,6 +27,7 @@ import {
 import { getCategoryIcon, CATEGORIES } from '@/constants/categories';
 import { Button } from '@/components';
 import { api } from '@/services/api';
+import { formatCurrency, getCurrencySymbol } from '@/utils/currency';
 
 type VoiceState = 'idle' | 'recording' | 'processing' | 'result';
 type EditingField = 'amount' | 'merchant' | 'category' | null;
@@ -52,6 +53,7 @@ export default function VoiceInputScreen() {
   // Inline editing state
   const [editingField, setEditingField] = useState<EditingField>(null);
   const [editValue, setEditValue] = useState('');
+  const [currencyCode, setCurrencyCode] = useState('INR');
   const amountInputRef = useRef<TextInput>(null);
   const merchantInputRef = useRef<TextInput>(null);
 
@@ -67,6 +69,19 @@ export default function VoiceInputScreen() {
       pulseAnim.setValue(1);
     }
   }, [state]);
+
+  useEffect(() => {
+    const loadCurrency = async () => {
+      try {
+        const profile = await api.getProfile();
+        const code = profile?.profile?.identity?.currency || profile?.profile?.currency;
+        if (code) setCurrencyCode(String(code).toUpperCase());
+      } catch {
+        // Keep fallback currency
+      }
+    };
+    loadCurrency();
+  }, []);
 
   const startPulseAnimation = () => {
     Animated.loop(
@@ -259,6 +274,7 @@ export default function VoiceInputScreen() {
       }
       await api.createTransaction({
         amount: parseFloat(result.amount),
+        currency: currencyCode,
         merchant: result.merchant,
         category: result.category,
         note: `Voice: ${transcript}`,
@@ -372,7 +388,7 @@ export default function VoiceInputScreen() {
                     <Text style={styles.rowLabel}>AMOUNT</Text>
                     {editingField === 'amount' ? (
                       <View style={styles.editInputContainer}>
-                        <Text style={styles.currencySymbolInline}>₹</Text>
+                        <Text style={styles.currencySymbolInline}>{getCurrencySymbol(currencyCode)}</Text>
                         <TextInput
                           ref={amountInputRef}
                           style={styles.editInput}
@@ -389,7 +405,9 @@ export default function VoiceInputScreen() {
                         </TouchableOpacity>
                       </View>
                     ) : (
-                      <Text style={styles.rowValue}>₹{result?.amount}</Text>
+                      <Text style={styles.rowValue}>
+                        {formatCurrency(Number(result?.amount || 0), currencyCode)}
+                      </Text>
                     )}
                   </View>
                 </View>

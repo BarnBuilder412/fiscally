@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -17,6 +17,8 @@ import {
   Shadows,
 } from '@/constants/theme';
 import { Card } from '@/components';
+import { api } from '@/services/api';
+import { formatCurrency } from '@/utils/currency';
 
 const ACCOUNTS = [
   { id: '1', name: 'HDFC Savings', type: 'Bank', balance: 45000, icon: 'business', color: '#3B82F6' },
@@ -32,8 +34,22 @@ const RECENT_TRANSFERS = [
 
 export default function WalletScreen() {
   const insets = useSafeAreaInsets();
+  const [currencyCode, setCurrencyCode] = useState('INR');
   
   const totalBalance = ACCOUNTS.reduce((sum, acc) => sum + acc.balance, 0);
+
+  useEffect(() => {
+    const loadCurrency = async () => {
+      try {
+        const profile = await api.getProfile();
+        const code = profile?.profile?.identity?.currency || profile?.profile?.currency;
+        if (code) setCurrencyCode(String(code).toUpperCase());
+      } catch {
+        // Keep fallback currency.
+      }
+    };
+    loadCurrency();
+  }, []);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -55,7 +71,7 @@ export default function WalletScreen() {
         {/* Total Balance Card */}
         <Card style={styles.totalCard}>
           <Text style={styles.totalLabel}>TOTAL BALANCE</Text>
-          <Text style={styles.totalAmount}>₹{totalBalance.toLocaleString()}</Text>
+          <Text style={styles.totalAmount}>{formatCurrency(totalBalance, currencyCode)}</Text>
           <View style={styles.totalActions}>
             <TouchableOpacity style={styles.actionButton}>
               <View style={styles.actionIcon}>
@@ -100,7 +116,7 @@ export default function WalletScreen() {
                 styles.accountBalance,
                 account.balance < 0 && styles.negativeBalance
               ]}>
-                {account.balance < 0 ? '-' : ''}₹{Math.abs(account.balance).toLocaleString()}
+                {account.balance < 0 ? '-' : ''}{formatCurrency(Math.abs(account.balance), currencyCode)}
               </Text>
             </View>
           </Card>
@@ -126,7 +142,7 @@ export default function WalletScreen() {
                 </Text>
                 <Text style={styles.transferDate}>{transfer.date}</Text>
               </View>
-              <Text style={styles.transferAmount}>₹{transfer.amount.toLocaleString()}</Text>
+              <Text style={styles.transferAmount}>{formatCurrency(transfer.amount, currencyCode)}</Text>
             </View>
           </Card>
         ))}

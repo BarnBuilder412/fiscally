@@ -68,6 +68,49 @@ def log_category_correction(
         return False
 
 
+def log_spend_class_correction(
+    trace_id: str,
+    original_spend_class: str,
+    corrected_spend_class: str,
+    transaction_id: str,
+    confidence: float = 0.0,
+) -> bool:
+    """
+    Log need/want/luxury corrections as ground-truth feedback.
+
+    Args:
+        trace_id: The Opik trace ID from the original classification
+        original_spend_class: AI-assigned spend class
+        corrected_spend_class: User corrected spend class
+        transaction_id: ID of the corrected transaction
+        confidence: Original AI confidence score
+    """
+    try:
+        score = 1.0 if original_spend_class == corrected_spend_class else 0.0
+
+        client.log_traces_feedback_scores(
+            scores=[{
+                "id": trace_id,
+                "name": "spend_class_accuracy_user",
+                "value": score,
+                "reason": f"User corrected '{original_spend_class}' to '{corrected_spend_class}'",
+            }]
+        )
+
+        client.log_traces_feedback_scores(
+            scores=[{
+                "id": trace_id,
+                "name": "user_spend_class_correction",
+                "value": 0.0 if score == 0.0 else 1.0,
+                "reason": f"transaction_id={transaction_id}, ai_confidence={confidence:.2f}",
+            }]
+        )
+        return True
+    except Exception as e:
+        print(f"Failed to log spend class correction feedback: {e}")
+        return False
+
+
 def log_chat_feedback(
     trace_id: str,
     rating: int,  # 1 = thumbs down, 2 = thumbs up

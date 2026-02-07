@@ -7,7 +7,6 @@ These rules are configured in the Opik dashboard but documented here for referen
 Use the functions below to create rules programmatically via the API.
 """
 import opik
-from typing import Dict, Any, List
 
 
 # Initialize Opik client
@@ -169,12 +168,87 @@ Explain briefly.""",
 }
 
 
+SPEND_CLASS_RULE = {
+    "name": "spend-class-quality",
+    "description": "Evaluate need/want/luxury classification quality",
+    "sampling_rate": 1.0,
+    "model": "gpt-4o-mini",
+    "prompt": """Evaluate this needs/wants/luxury classification.
+
+TRANSACTION:
+Amount: {{metadata.amount}}
+Category: {{metadata.category}}
+Merchant: {{metadata.merchant}}
+
+CLASSIFICATION OUTPUT:
+{{output}}
+
+Evaluate:
+1. Is need/want/luxury class appropriate?
+2. Is confidence proportional to ambiguity?
+3. Is reasoning aligned with user context/goals when available?
+
+Score:
+- 1.0 = Correct class and confidence
+- 0.5 = Mostly correct but weak confidence/reasoning
+- 0.0 = Incorrect class
+
+Explain briefly.""",
+    "variable_mapping": {
+        "metadata.amount": "metadata.amount",
+        "metadata.category": "metadata.category",
+        "metadata.merchant": "metadata.merchant",
+        "output": "output",
+    },
+    "scores": [
+        {"name": "spend_class_accuracy", "type": "float", "min": 0, "max": 1},
+    ],
+}
+
+
+RECEIPT_PARSING_RULE = {
+    "name": "receipt-parsing-quality",
+    "description": "Evaluate receipt parsing quality for auto-add flow",
+    "sampling_rate": 1.0,
+    "model": "gpt-4o-mini",
+    "prompt": """Evaluate this receipt parsing result.
+
+OCR/Vision INPUT:
+{{input}}
+
+PARSED OUTPUT:
+{{output}}
+
+Evaluate:
+1. Is total payable amount extracted correctly?
+2. Is merchant reasonably identified?
+3. Is category plausible for merchant/items?
+4. Is review flag sensible given confidence?
+
+Score:
+- 1.0 = Accurate parse
+- 0.5 = Partially accurate (minor field issues)
+- 0.0 = Incorrect parse
+
+Explain briefly.""",
+    "variable_mapping": {
+        "input": "input",
+        "output": "output",
+    },
+    "scores": [
+        {"name": "receipt_parsing_accuracy", "type": "float", "min": 0, "max": 1},
+    ],
+}
+
+
 # All rules for easy iteration
 ALL_RULES = [
     CATEGORIZATION_QUALITY_RULE,
     CHAT_HELPFULNESS_RULE,
     ANOMALY_DETECTION_RULE,
     VOICE_PARSING_RULE,
+    SPEND_CLASS_RULE,
+    RECEIPT_PARSING_RULE,
 ]
 
 

@@ -9,6 +9,7 @@ from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 import uuid
 import opik
+from datetime import datetime, timedelta
 
 from .llm_client import llm_client
 from .context_manager import ContextManager, UserInsight
@@ -208,7 +209,7 @@ class TransactionAgent:
         budget_warning: Optional[Dict[str, Any]],
         confidence: float
     ) -> tuple[bool, Optional[str]]:
-        """Determine if user should be notified."""
+        """Determine if user should be notified (critical-only policy)."""
         # Always notify for high-severity anomalies
         if anomaly["is_anomaly"] and anomaly.get("severity") in ["medium", "high"]:
             return True, "anomaly"
@@ -216,13 +217,12 @@ class TransactionAgent:
         # Notify for budget warnings
         if budget_warning and budget_warning.get("percentage", 0) >= 90:
             return True, "budget_warning"
-        
-        # Notify for low-confidence categorization (user should verify)
+
+        # Low-confidence categorization should be surfaced in UI, not pushed as a notification.
         if confidence < 0.7:
-            return True, "verify_category"
-        
-        # Default: notify for new transaction (actionable notification)
-        return True, "new_transaction"
+            return False, "verify_category"
+
+        return False, None
 
 
 class ChatAgent:
@@ -526,8 +526,14 @@ class InsightAgent:
         transactions = await self.context.get_transactions(user_id, days=7)
         
         # Get last week's total for comparison
-        # TODO: Implement proper date range query
-        last_week_total = 0  # Placeholder
+        now = datetime.utcnow()
+        start_this_week = now - timedelta(days=7)
+        start_last_week = now - timedelta(days=14)
+        last_week_total = await self.context.get_spending_total_between(
+            user_id,
+            start_last_week,
+            start_this_week,
+        )
         
         this_week_total = sum(t.get('amount', 0) for t in transactions)
         
@@ -634,10 +640,37 @@ class AlertAgent:
                 })
         
         # Check 3: Goal milestone
-        goals = user_context.get("goals", [])
-        for goal in goals:
-            # This is simplified - real implementation would track savings
-            pass
+        try:
+            goal_progress_data = await self.context.calculate_goal_progress(user_id)
+            goals = goal_progress_data.get("goals", [])
+            milestone_alerts: List[Dict[str, Any]] = []
+            for goal in goals:
+                label = goal.get("label") or "goal"
+                progress = float(goal.get("progress_percentage") or 0)
+                if progress >= 100:
+                    milestone_alerts.append({
+                        "type": "goal_completed",
+                        "goal": label,
+                        "message": f"Milestone reached: {label} is fully funded.",
+                    })
+                    continue
+                if progress >= 75:
+                    milestone_alerts.append({
+                        "type": "goal_milestone",
+                        "goal": label,
+                        "message": f"You're {progress:.0f}% of the way to {label}.",
+                    })
+                    continue
+                if not goal.get("on_track", True) and goal.get("target_date"):
+                    milestone_alerts.append({
+                        "type": "goal_at_risk",
+                        "goal": label,
+                        "message": f"{label} is at risk for {goal.get('target_date')}. Consider increasing monthly savings.",
+                    })
+            if milestone_alerts:
+                alerts.append(milestone_alerts[0])
+        except Exception as exc:
+            print(f"Goal milestone alert check failed: {exc}")
         
         # Check 4: Pattern violation (e.g., late night ordering when trying to stop)
         memory = user_context.get("memory", {})

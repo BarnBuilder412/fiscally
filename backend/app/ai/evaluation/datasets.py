@@ -4,7 +4,6 @@ Opik Dataset Management
 Create and manage evaluation datasets for each Fiscally LLM function.
 """
 import opik
-from typing import List, Dict, Any
 
 # Initialize Opik client
 client = opik.Opik()
@@ -126,7 +125,7 @@ class DatasetManager:
             {
                 "input": "How much did I spend on food this month?",
                 "context": {"total_food": 12000, "food_budget": 15000},
-                "expected_traits": ["mentions_specific_amount", "uses_rupee_symbol", "friendly_tone"]
+                "expected_traits": ["mentions_specific_amount", "uses_currency_indicator", "friendly_tone"]
             },
             {
                 "input": "Am I on track with my savings goal?",
@@ -188,6 +187,60 @@ class DatasetManager:
         dataset.insert(test_cases)
         return dataset
 
+    @staticmethod
+    def create_spend_class_dataset() -> opik.Dataset:
+        """Create dataset for testing need/want/luxury classification."""
+        dataset = client.get_or_create_dataset("fiscally-spend-class")
+
+        test_cases = [
+            {
+                "input": {"amount": 1200, "merchant": "BigBasket", "category": "groceries"},
+                "expected_output": {"spend_class": "need", "min_confidence": 0.7},
+            },
+            {
+                "input": {"amount": 299, "merchant": "Netflix", "category": "subscriptions"},
+                "expected_output": {"spend_class": "want", "min_confidence": 0.6},
+            },
+            {
+                "input": {"amount": 18000, "merchant": "Apple Store", "category": "shopping"},
+                "expected_output": {"spend_class": "luxury", "min_confidence": 0.6},
+            },
+            {
+                "input": {"amount": 450, "merchant": "Uber", "category": "transport"},
+                "expected_output": {"spend_class": "need", "min_confidence": 0.5},
+            },
+            {
+                "input": {"amount": 3200, "merchant": "Fine Dine", "category": "restaurant"},
+                "expected_output": {"spend_class": "luxury", "min_confidence": 0.5},
+            },
+        ]
+
+        dataset.insert(test_cases)
+        return dataset
+
+    @staticmethod
+    def create_receipt_parsing_dataset() -> opik.Dataset:
+        """Create dataset for testing receipt parsing quality."""
+        dataset = client.get_or_create_dataset("fiscally-receipt-parsing")
+
+        test_cases = [
+            {
+                "input": "Merchant: Cafe Blue\nTotal: 450.00\nDate: 2026-02-01",
+                "expected_output": {"amount": 450.0, "category": "restaurant", "merchant": "Cafe Blue", "min_confidence": 0.7},
+            },
+            {
+                "input": "Amazon Invoice\nGrand Total INR 2599.00\nOrder date 2026-01-30",
+                "expected_output": {"amount": 2599.0, "category": "shopping", "merchant": "Amazon", "min_confidence": 0.7},
+            },
+            {
+                "input": "Apollo Pharmacy\nTotal payable: 899.50",
+                "expected_output": {"amount": 899.5, "category": "health", "merchant": "Apollo", "min_confidence": 0.6},
+            },
+        ]
+
+        dataset.insert(test_cases)
+        return dataset
+
 
 def setup_all_datasets():
     """Create all evaluation datasets."""
@@ -204,6 +257,12 @@ def setup_all_datasets():
     
     DatasetManager.create_anomaly_dataset()
     print("✓ Created fiscally-anomaly-detection dataset")
+
+    DatasetManager.create_spend_class_dataset()
+    print("✓ Created fiscally-spend-class dataset")
+
+    DatasetManager.create_receipt_parsing_dataset()
+    print("✓ Created fiscally-receipt-parsing dataset")
     
     print("\n✅ All datasets created successfully!")
     print("View at: https://www.comet.com/opik/fiscally/datasets")

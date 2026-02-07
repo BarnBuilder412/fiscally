@@ -96,6 +96,19 @@ class ContextManager:
         """Get user from DB by ID."""
         from app.models.user import User
         return self.db.query(User).filter(User.id == user_id).first()
+
+    @staticmethod
+    def _parse_amount_value(raw: Any) -> float:
+        """Parse numeric amount from strings that may include currency symbols."""
+        if raw is None:
+            return 0.0
+        text = str(raw).strip()
+        cleaned = "".join(ch for ch in text if ch.isdigit() or ch in {".", ",", "-"})
+        cleaned = cleaned.replace(",", "")
+        try:
+            return float(cleaned)
+        except (TypeError, ValueError):
+            return 0.0
     
     # =========================================================================
     # LOAD CONTEXT (from DB)
@@ -158,7 +171,7 @@ class ContextManager:
                     target = datetime.strptime(target_date, "%Y-%m-%d")
                     months_remaining = max(1, (target.year - datetime.now().year) * 12 + 
                                           (target.month - datetime.now().month))
-                    amount = float(str(target_amount).replace(",", ""))
+                    amount = self._parse_amount_value(target_amount)
                     enriched["monthly_savings_needed"] = round(amount / months_remaining)
                     enriched["months_remaining"] = months_remaining
                 except (ValueError, TypeError):
@@ -211,12 +224,34 @@ class ContextManager:
         
         transactions = query.all()
         
+        user = self._get_user(user_id)
+        category_budget = None
+        if user and category:
+            profile = user.profile or {}
+            category_budgets = profile.get("category_budgets", {}) if isinstance(profile, dict) else {}
+            raw_budget = category_budgets.get(category)
+            try:
+                if raw_budget is not None:
+                    category_budget = float(raw_budget)
+            except (TypeError, ValueError):
+                category_budget = None
+
+            if category_budget is None and user.goals:
+                active_goals = (user.goals or {}).get("active_goals", [])
+                for goal in active_goals:
+                    if goal.get("category") == category and goal.get("monthly_budget") is not None:
+                        try:
+                            category_budget = float(goal.get("monthly_budget"))
+                            break
+                        except (TypeError, ValueError):
+                            continue
+
         if not transactions:
             return {
                 "category_avg": 0,
                 "category_max": 0,
                 "typical_merchants": [],
-                "category_budget": None
+                "category_budget": category_budget
             }
         
         amounts = [float(t.amount) for t in transactions]
@@ -226,7 +261,7 @@ class ContextManager:
             "category_avg": sum(amounts) / len(amounts) if amounts else 0,
             "category_max": max(amounts) if amounts else 0,
             "typical_merchants": list(set(merchants))[:10],
-            "category_budget": None  # TODO: Get from user goals
+            "category_budget": category_budget
         }
     
     async def get_category_total(
@@ -509,6 +544,26 @@ class ContextManager:
             "avg_transaction": total / count if count > 0 else 0
         }
 
+    async def get_spending_total_between(
+        self,
+        user_id: str,
+        start_date: datetime,
+        end_date: datetime,
+    ) -> float:
+        """Get total spending for an explicit date range."""
+        from app.models.user import Transaction
+
+        transactions = (
+            self.db.query(Transaction)
+            .filter(
+                Transaction.user_id == user_id,
+                Transaction.transaction_at >= start_date,
+                Transaction.transaction_at < end_date,
+            )
+            .all()
+        )
+        return sum(float(t.amount) for t in transactions)
+
     # =========================================================================
     # FORMAT DATA FOR LLM
     # =========================================================================
@@ -727,10 +782,7 @@ class ContextManager:
             
             # Parse target amount
             target_str = goal.get("target_amount", "0")
-            try:
-                target_amount = float(str(target_str).replace(",", "").replace("₹", ""))
-            except (ValueError, TypeError):
-                target_amount = 0
+            target_amount = self._parse_amount_value(target_str)
             
             current_saved = goal.get("current_amount", goal.get("current_saved", 0))
             amount_needed = max(0, target_amount - current_saved)

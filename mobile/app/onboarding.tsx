@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
@@ -27,18 +27,11 @@ import {
 import { Button } from '@/components';
 import { api } from '@/services/api';
 import { requestSmsPermissions, startSmsTracking, stopSmsTracking } from '@/services/smsTracking';
+import { formatCurrency, getCurrencySymbol } from '@/utils/currency';
 
 const { width } = Dimensions.get('window');
 
 type Step = 'welcome' | 'income' | 'budget' | 'goals' | 'goal_details' | 'sms' | 'complete';
-
-const BUDGET_RANGES = [
-  { id: 'below_20k', label: 'Less than ₹20,000' },
-  { id: '20k_40k', label: '₹20,000 - ₹40,000' },
-  { id: '40k_70k', label: '₹40,000 - ₹70,000' },
-  { id: '70k_100k', label: '₹70,000 - ₹1,00,000' },
-  { id: 'above_100k', label: 'More than ₹1,00,000' },
-];
 
 const SAVINGS_GOALS = [
   { id: 'emergency', label: 'Emergency Fund', icon: 'shield-checkmark', color: '#22C55E' },
@@ -61,6 +54,21 @@ export default function OnboardingScreen() {
   const [currentGoalIndex, setCurrentGoalIndex] = useState(0);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [smsEnabled, setSmsEnabled] = useState(false);
+  const [currencyCode, setCurrencyCode] = useState('INR');
+  const currencySymbol = getCurrencySymbol(currencyCode);
+
+  useEffect(() => {
+    const loadCurrency = async () => {
+      try {
+        const profile = await api.getProfile();
+        const code = profile?.profile?.identity?.currency || profile?.profile?.currency;
+        if (code) setCurrencyCode(String(code).toUpperCase());
+      } catch {
+        // Keep fallback currency during onboarding.
+      }
+    };
+    loadCurrency();
+  }, []);
 
   const getStepNumber = () => {
     switch (step) {
@@ -309,7 +317,7 @@ export default function OnboardingScreen() {
 
       <View style={styles.formContainer}>
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Monthly Income (₹)</Text>
+          <Text style={styles.inputLabel}>Monthly Income ({currencySymbol})</Text>
           <TextInput
             style={styles.textInput}
             placeholder="e.g. 85000"
@@ -361,7 +369,7 @@ export default function OnboardingScreen() {
 
       <View style={styles.formContainer}>
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Monthly Budget (₹)</Text>
+          <Text style={styles.inputLabel}>Monthly Budget ({currencySymbol})</Text>
           <TextInput
             style={styles.textInput}
             placeholder="e.g. 50000"
@@ -375,7 +383,10 @@ export default function OnboardingScreen() {
           <View style={styles.savingsPreview}>
             <Text style={styles.savingsPreviewLabel}>Expected Monthly Savings:</Text>
             <Text style={styles.savingsPreviewValue}>
-              ₹{Math.max(0, parseInt(exactIncome.replace(/,/g, '')) - parseInt(exactBudget.replace(/,/g, ''))).toLocaleString('en-IN')}
+              {formatCurrency(
+                Math.max(0, parseInt(exactIncome.replace(/,/g, '')) - parseInt(exactBudget.replace(/,/g, ''))),
+                currencyCode
+              )}
             </Text>
           </View>
         )}
@@ -532,7 +543,7 @@ export default function OnboardingScreen() {
 
           <View style={styles.formContainer}>
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Target Amount (₹)</Text>
+              <Text style={styles.inputLabel}>Target Amount ({currencySymbol})</Text>
               <TextInput
                 style={styles.textInput}
                 placeholder="e.g. 1,00,000"

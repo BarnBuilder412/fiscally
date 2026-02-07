@@ -9,6 +9,7 @@ import {
     FontWeight,
     BorderRadius,
 } from '@/constants/theme';
+import { getCurrencySymbol } from '@/utils/currency';
 
 export interface GoalDetailData {
     amount: string;
@@ -23,6 +24,7 @@ interface GoalDetailFormProps {
     data: GoalDetailData;
     onChange: (goalId: string, data: GoalDetailData) => void;
     compact?: boolean;
+    currencyCode?: string;
 }
 
 export function GoalDetailForm({
@@ -33,6 +35,7 @@ export function GoalDetailForm({
     data,
     onChange,
     compact = false,
+    currencyCode = 'INR',
 }: GoalDetailFormProps) {
     const [showDatePicker, setShowDatePicker] = useState(false);
 
@@ -66,7 +69,7 @@ export function GoalDetailForm({
 
             <View style={styles.formRow}>
                 <View style={[styles.inputWrapper, compact && styles.inputWrapperCompact]}>
-                    <Text style={styles.label}>Target Amount (₹)</Text>
+                    <Text style={styles.label}>Target Amount ({getCurrencySymbol(currencyCode)})</Text>
                     <TextInput
                         style={styles.input}
                         placeholder="e.g. 1,00,000"

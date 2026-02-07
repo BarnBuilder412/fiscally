@@ -6,7 +6,8 @@ Now integrated with TransactionAgent for:
 - Anomaly detection
 - Pattern updates
 """
-from datetime import datetime
+from datetime import datetime, timedelta
+import hashlib
 from typing import Annotated, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File
@@ -23,12 +24,39 @@ from app.schemas.transaction import (
     TransactionListResponse,
     VoiceTransactionResponse,
     ReceiptTransactionResponse,
+    SmsBatchIngestRequest,
+    SmsBatchIngestResponse,
 )
 from app.ai.agents import TransactionAgent
 from app.ai.context_manager import ContextManager
-from app.ai.feedback import log_category_correction
+from app.ai.feedback import log_category_correction, log_spend_class_correction
 
 router = APIRouter()
+
+
+def _normalized_text(value: Optional[str]) -> str:
+    return (value or "").strip().lower()
+
+
+def _compute_sms_dedupe_key(
+    amount: float,
+    merchant: Optional[str],
+    category: str,
+    transaction_at: datetime,
+    raw_sms: Optional[str],
+    sender: Optional[str],
+) -> str:
+    payload = "|".join(
+        [
+            f"{amount:.2f}",
+            _normalized_text(merchant),
+            _normalized_text(category),
+            transaction_at.replace(second=0, microsecond=0).isoformat(),
+            _normalized_text(sender),
+            _normalized_text(raw_sms),
+        ]
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 @router.post("", response_model=TransactionResponse, status_code=status.HTTP_201_CREATED)
@@ -105,6 +133,7 @@ async def create_transaction(
         category=ai_category,
         note=request.note,
         source=request.source,
+        raw_sms=request.raw_sms if request.source == "sms" else None,
         transaction_at=request.transaction_at or datetime.utcnow(),
         ai_category_confidence=ai_confidence,
         spend_class=spend_class,
@@ -132,6 +161,9 @@ async def list_transactions(
     start_date: Optional[datetime] = Query(default=None, description="Filter transactions after this date"),
     end_date: Optional[datetime] = Query(default=None, description="Filter transactions before this date"),
     merchant: Optional[str] = Query(default=None, description="Filter by merchant (partial match)"),
+    source: Optional[str] = Query(default=None, description="Filter by source: manual|voice|sms|receipt"),
+    spend_class: Optional[str] = Query(default=None, description="Filter by spend class: need|want|luxury"),
+    is_anomaly: Optional[bool] = Query(default=None, description="Filter anomaly transactions"),
 ):
     """
     List transactions for the authenticated user with optional filters.
@@ -160,6 +192,15 @@ async def list_transactions(
     if merchant:
         # Case-insensitive partial match
         query = query.filter(Transaction.merchant.ilike(f"%{merchant}%"))
+
+    if source:
+        query = query.filter(Transaction.source == source)
+
+    if spend_class:
+        query = query.filter(Transaction.spend_class == spend_class)
+
+    if is_anomaly is not None:
+        query = query.filter(Transaction.is_anomaly == is_anomaly)
     
     # Get total count before pagination
     total = query.count()
@@ -179,6 +220,150 @@ async def list_transactions(
         limit=limit,
         offset=offset,
         has_more=(offset + len(transactions)) < total,
+    )
+
+
+@router.post("/sms/batch", response_model=SmsBatchIngestResponse, status_code=status.HTTP_201_CREATED)
+async def ingest_sms_batch(
+    request: SmsBatchIngestRequest,
+    current_user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """
+    Ingest parsed SMS transactions in batch with duplicate protection.
+
+    This endpoint is Android-SMS specific and keeps ingestion idempotent by
+    checking short-window matches for amount/merchant/timestamp.
+    """
+    context_manager = ContextManager(db)
+    agent = TransactionAgent(context_manager)
+    user_id = str(current_user.id)
+    user_context = await context_manager.load_full_context(user_id)
+    fallback_currency = (
+        user_context.get("profile", {}).get("identity", {}).get("currency")
+        or user_context.get("profile", {}).get("currency")
+        or "INR"
+    )
+
+    created_count = 0
+    duplicate_count = 0
+    failed_count = 0
+    created_transaction_ids: list[str] = []
+
+    for item in request.transactions:
+        try:
+            amount_value = float(item.amount)
+            merchant = item.merchant.strip() if item.merchant else None
+            category = item.category or "other"
+            transaction_at = item.transaction_at or datetime.utcnow()
+            currency = (item.currency or fallback_currency).upper()
+            dedupe_key = item.dedupe_key or _compute_sms_dedupe_key(
+                amount=amount_value,
+                merchant=merchant,
+                category=category,
+                transaction_at=transaction_at,
+                raw_sms=item.raw_sms,
+                sender=item.sms_sender,
+            )
+
+            # Duplicate check in a tight time window to avoid repeated ingestion.
+            window_start = transaction_at - timedelta(minutes=2)
+            window_end = transaction_at + timedelta(minutes=2)
+            candidates = (
+                db.query(Transaction)
+                .filter(
+                    Transaction.user_id == current_user.id,
+                    Transaction.source == "sms",
+                    Transaction.transaction_at >= window_start,
+                    Transaction.transaction_at <= window_end,
+                )
+                .all()
+            )
+            is_duplicate = any(
+                abs(float(tx.amount) - amount_value) < 0.01
+                and _normalized_text(tx.merchant) == _normalized_text(merchant)
+                and (
+                    f"key:{dedupe_key[:16]}" in _normalized_text(tx.note)
+                    or (
+                        item.raw_sms
+                        and _normalized_text(tx.raw_sms) == _normalized_text(item.raw_sms)
+                    )
+                )
+                for tx in candidates
+            )
+            if is_duplicate:
+                duplicate_count += 1
+                continue
+
+            ai_category = category
+            ai_confidence = "1.0" if item.category else "0.0"
+            spend_class = None
+            spend_class_confidence = None
+            spend_class_reason = None
+            is_anomaly = False
+            anomaly_reason = None
+            opik_trace_id = None
+
+            try:
+                ai_result = await agent.process(
+                    user_id,
+                    {
+                        "amount": amount_value,
+                        "merchant": merchant,
+                        "category": item.category,
+                        "timestamp": transaction_at.isoformat(),
+                    },
+                )
+                ai_category = item.category or ai_result.category
+                ai_confidence = str(ai_result.category_confidence)
+                spend_class = ai_result.spend_class
+                spend_class_confidence = (
+                    str(ai_result.spend_class_confidence)
+                    if ai_result.spend_class_confidence is not None
+                    else None
+                )
+                spend_class_reason = ai_result.spend_class_reason
+                is_anomaly = ai_result.is_anomaly
+                anomaly_reason = ai_result.anomaly_reason
+                opik_trace_id = ai_result.opik_trace_id
+            except Exception as ai_exc:
+                print(f"SMS batch AI enrichment failed: {ai_exc}")
+
+            note_suffix = f"Auto-tracked via SMS [key:{dedupe_key[:16]}]"
+            created = Transaction(
+                user_id=current_user.id,
+                amount=str(item.amount),
+                currency=currency,
+                merchant=merchant,
+                category=ai_category,
+                note=note_suffix,
+                source="sms",
+                raw_sms=item.raw_sms,
+                transaction_at=transaction_at,
+                ai_category_confidence=ai_confidence,
+                spend_class=spend_class,
+                spend_class_confidence=spend_class_confidence,
+                spend_class_reason=spend_class_reason,
+                is_anomaly=is_anomaly,
+                anomaly_reason=anomaly_reason,
+                opik_trace_id=opik_trace_id,
+            )
+            db.add(created)
+            db.commit()
+            db.refresh(created)
+            created_count += 1
+            created_transaction_ids.append(str(created.id))
+        except Exception as exc:
+            db.rollback()
+            failed_count += 1
+            print(f"SMS batch ingest failed for one item: {exc}")
+
+    return SmsBatchIngestResponse(
+        received_count=len(request.transactions),
+        created_count=created_count,
+        duplicate_count=duplicate_count,
+        failed_count=failed_count,
+        created_transaction_ids=created_transaction_ids,
     )
 
 
@@ -241,6 +426,10 @@ async def update_transaction(
     if not updates:
         return transaction
 
+    original_spend_class = transaction.spend_class
+    original_spend_class_confidence = transaction.spend_class_confidence
+    spend_class_changed = False
+
     if "amount" in updates and updates["amount"] is not None:
         transaction.amount = str(updates["amount"])
     if "currency" in updates and updates["currency"] is not None:
@@ -252,6 +441,7 @@ async def update_transaction(
     if "note" in updates:
         transaction.note = updates["note"]
     if "spend_class" in updates:
+        spend_class_changed = updates["spend_class"] != original_spend_class
         transaction.spend_class = updates["spend_class"]
         transaction.spend_class_confidence = "1.0" if updates["spend_class"] else None
         transaction.spend_class_reason = "User updated spend class" if updates["spend_class"] else None
@@ -292,6 +482,24 @@ async def update_transaction(
     
     db.commit()
     db.refresh(transaction)
+
+    if (
+        spend_class_changed
+        and transaction.opik_trace_id
+        and original_spend_class
+        and transaction.spend_class
+    ):
+        try:
+            confidence = float(original_spend_class_confidence or "0")
+        except (TypeError, ValueError):
+            confidence = 0.0
+        log_spend_class_correction(
+            trace_id=transaction.opik_trace_id,
+            original_spend_class=original_spend_class,
+            corrected_spend_class=transaction.spend_class,
+            transaction_id=str(transaction.id),
+            confidence=confidence,
+        )
     
     return transaction
 
@@ -455,12 +663,43 @@ async def parse_receipt_transaction(
     if "pdf" in content_type or (file.filename and file.filename.lower().endswith(".pdf")):
         reader = PdfReader(BytesIO(content))
         extracted_text = "\n".join((page.extract_text() or "") for page in reader.pages).strip()
-        if not extracted_text:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="No readable text found in PDF",
+        if extracted_text:
+            parsed = await llm_client.parse_receipt_text(extracted_text, user_context=user_context)
+        else:
+            # Scanned PDF fallback: extract embedded image and run vision parse.
+            image_bytes = None
+            image_mime = None
+            for page in reader.pages:
+                try:
+                    page_images = getattr(page, "images", []) or []
+                    for image in page_images:
+                        raw_bytes = getattr(image, "data", None)
+                        if not raw_bytes:
+                            continue
+                        image_bytes = raw_bytes
+                        image_name = (getattr(image, "name", "") or "").lower()
+                        if image_name.endswith(".png"):
+                            image_mime = "image/png"
+                        elif image_name.endswith(".webp"):
+                            image_mime = "image/webp"
+                        else:
+                            image_mime = "image/jpeg"
+                        break
+                    if image_bytes:
+                        break
+                except Exception:
+                    continue
+
+            if not image_bytes:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="No readable text or image found in PDF",
+                )
+            parsed = await llm_client.parse_receipt_image(
+                image_bytes,
+                image_mime or "image/jpeg",
+                user_context=user_context,
             )
-        parsed = await llm_client.parse_receipt_text(extracted_text, user_context=user_context)
     elif content_type.startswith("image/"):
         parsed = await llm_client.parse_receipt_image(content, content_type, user_context=user_context)
     else:
@@ -470,14 +709,25 @@ async def parse_receipt_transaction(
         )
 
     amount = parsed.get("amount", 0.0)
+    try:
+        parsed_amount = float(amount)
+    except (TypeError, ValueError):
+        parsed_amount = 0.0
+
+    if parsed_amount <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Unable to determine payable amount from receipt",
+        )
+
     merchant = parsed.get("merchant")
     category = parsed.get("category") or "other"
-    parsed_currency = parsed.get("currency") or (
+    parsed_currency = (parsed.get("currency") or (
         user_context.get("profile", {}).get("identity", {}).get("currency") or "INR"
-    )
+    )).upper()
 
     transaction_payload = {
-        "amount": float(amount),
+        "amount": parsed_amount,
         "merchant": merchant,
         "category": category,
         "timestamp": parsed.get("transaction_at") or datetime.utcnow().isoformat(),
@@ -501,9 +751,47 @@ async def parse_receipt_transaction(
         except ValueError:
             pass
 
+    # Duplicate suppression for rapid re-uploads of the same receipt.
+    duplicate_window_start = transaction_at - timedelta(hours=6)
+    duplicate_window_end = transaction_at + timedelta(hours=6)
+    candidates = (
+        db.query(Transaction)
+        .filter(
+            Transaction.user_id == current_user.id,
+            Transaction.transaction_at >= duplicate_window_start,
+            Transaction.transaction_at <= duplicate_window_end,
+        )
+        .all()
+    )
+    merchant_norm = _normalized_text(merchant)
+    duplicate_txn = next(
+        (
+            txn
+            for txn in candidates
+            if abs(float(txn.amount) - parsed_amount) < 0.01
+            and _normalized_text(txn.merchant) == merchant_norm
+        ),
+        None,
+    )
+
+    if duplicate_txn:
+        return ReceiptTransactionResponse(
+            amount=parsed_amount,
+            currency=parsed_currency,
+            merchant=merchant,
+            category=final_category,
+            spend_class=spend_class,
+            confidence=float(parsed.get("confidence", 0.0)),
+            needs_review=bool(parsed.get("needs_review", False)),
+            duplicate_suspected=True,
+            reason="Possible duplicate receipt detected. Reused existing transaction.",
+            transaction=duplicate_txn,
+            extracted_items=parsed.get("line_items") or [],
+        )
+
     created = Transaction(
         user_id=current_user.id,
-        amount=str(float(amount)),
+        amount=str(parsed_amount),
         currency=parsed_currency,
         merchant=merchant,
         category=final_category,
@@ -523,13 +811,14 @@ async def parse_receipt_transaction(
     db.refresh(created)
 
     return ReceiptTransactionResponse(
-        amount=float(amount),
+        amount=parsed_amount,
         currency=parsed_currency,
         merchant=merchant,
         category=final_category,
         spend_class=spend_class,
         confidence=float(parsed.get("confidence", 0.0)),
         needs_review=bool(parsed.get("needs_review", False)),
+        duplicate_suspected=False,
         reason=parsed.get("reason"),
         transaction=created,
         extracted_items=parsed.get("line_items") or [],

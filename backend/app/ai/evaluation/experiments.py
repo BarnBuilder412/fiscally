@@ -4,26 +4,17 @@ Opik Experiment Runners for Fiscally
 Run systematic evaluations of LLM functions.
 """
 import asyncio
-import opik
 from opik.evaluation import evaluate
 from typing import Dict, Any
 
 from .datasets import DatasetManager
 from .metrics import (
-    CategoryAccuracy, 
-    ConfidenceCalibration,
-    RupeeSymbolUsage,
-    ResponseConciseness,
     VoiceParsingAccuracy,
-    ToneAppropriatenessMetric,
-    SpecificNumbersMetric,
     get_chat_metrics,
     get_categorization_metrics,
+    get_spend_class_metrics,
+    get_receipt_metrics,
 )
-
-# Initialize Opik client
-client = opik.Opik()
-
 
 def _run_async(coro):
     """Helper to run async functions in sync context."""
@@ -73,7 +64,7 @@ def run_categorization_experiment(experiment_name: str = "categorization-eval"):
     )
     
     print(f"✅ Experiment complete: {experiment_name}")
-    print(f"   View results: https://www.comet.com/opik/fiscally/experiments")
+    print("   View results: https://www.comet.com/opik/fiscally/experiments")
     
     return result
 
@@ -162,6 +153,66 @@ def run_chat_experiment(experiment_name: str = "chat-eval"):
     return result
 
 
+def run_spend_class_experiment(experiment_name: str = "spend-class-eval"):
+    """Run need/want/luxury classification evaluation."""
+    from ..llm_client import llm_client
+
+    print(f"🧪 Running experiment: {experiment_name}")
+    dataset = DatasetManager.create_spend_class_dataset()
+
+    def evaluation_task(item: Dict[str, Any]) -> Dict[str, Any]:
+        result = _run_async(
+            llm_client.classify_spending_class(
+                item["input"],
+                user_context=item.get("user_context"),
+            )
+        )
+        return {"output": result}
+
+    result = evaluate(
+        experiment_name=experiment_name,
+        dataset=dataset,
+        task=evaluation_task,
+        scoring_metrics=get_spend_class_metrics(),
+        scoring_key_mapping={
+            "output": "output",
+            "expected_output": "expected_output",
+        },
+    )
+    print(f"✅ Experiment complete: {experiment_name}")
+    return result
+
+
+def run_receipt_parsing_experiment(experiment_name: str = "receipt-parsing-eval"):
+    """Run receipt text parsing evaluation."""
+    from ..llm_client import llm_client
+
+    print(f"🧪 Running experiment: {experiment_name}")
+    dataset = DatasetManager.create_receipt_parsing_dataset()
+
+    def evaluation_task(item: Dict[str, Any]) -> Dict[str, Any]:
+        result = _run_async(
+            llm_client.parse_receipt_text(
+                item["input"],
+                user_context=item.get("user_context"),
+            )
+        )
+        return {"output": result}
+
+    result = evaluate(
+        experiment_name=experiment_name,
+        dataset=dataset,
+        task=evaluation_task,
+        scoring_metrics=get_receipt_metrics(),
+        scoring_key_mapping={
+            "output": "output",
+            "expected_output": "expected_output",
+        },
+    )
+    print(f"✅ Experiment complete: {experiment_name}")
+    return result
+
+
 def run_all_experiments():
     """Run all Fiscally LLM evaluation experiments."""
     print("=" * 60)
@@ -173,6 +224,8 @@ def run_all_experiments():
     DatasetManager.create_voice_parsing_dataset()
     DatasetManager.create_chat_dataset()
     DatasetManager.create_anomaly_dataset()
+    DatasetManager.create_spend_class_dataset()
+    DatasetManager.create_receipt_parsing_dataset()
     print("✓ Datasets ready")
     
     # Run experiments
@@ -192,6 +245,16 @@ def run_all_experiments():
         run_chat_experiment()
     except Exception as e:
         print(f"⚠️ Chat experiment failed: {e}")
+
+    try:
+        run_spend_class_experiment()
+    except Exception as e:
+        print(f"⚠️ Spend class experiment failed: {e}")
+
+    try:
+        run_receipt_parsing_experiment()
+    except Exception as e:
+        print(f"⚠️ Receipt parsing experiment failed: {e}")
     
     print("\n" + "=" * 60)
     print("✅ All experiments complete!")

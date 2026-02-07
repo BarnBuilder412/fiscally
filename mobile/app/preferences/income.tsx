@@ -20,20 +20,34 @@ import {
 } from '@/constants/theme';
 import { eventBus, Events } from '@/services/eventBus';
 import { api } from '@/services/api';
+import { getCurrencySymbol } from '@/utils/currency';
 
 export default function IncomePreferencesScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const [exactIncome, setExactIncome] = useState('');
     const [saving, setSaving] = useState(false);
+    const [currencyCode, setCurrencyCode] = useState('INR');
+    const currencySymbol = getCurrencySymbol(currencyCode);
 
     useEffect(() => {
         loadSavedIncome();
+        loadCurrency();
     }, []);
 
     const loadSavedIncome = async () => {
         const saved = await AsyncStorage.getItem('user_income');
         if (saved) setExactIncome(saved);
+    };
+
+    const loadCurrency = async () => {
+        try {
+            const profile = await api.getProfile();
+            const code = profile?.profile?.identity?.currency || profile?.profile?.currency;
+            if (code) setCurrencyCode(String(code).toUpperCase());
+        } catch {
+            // Keep fallback currency.
+        }
     };
 
     const saveIncome = async () => {
@@ -76,7 +90,7 @@ export default function IncomePreferencesScreen() {
                 </Text>
 
                 <View style={styles.inputContainer}>
-                    <Text style={styles.inputLabel}>Monthly Income (₹)</Text>
+                    <Text style={styles.inputLabel}>Monthly Income ({currencySymbol})</Text>
                     <TextInput
                         style={styles.textInput}
                         placeholder="e.g. 85000"
@@ -178,4 +192,3 @@ const styles = StyleSheet.create({
         color: Colors.white,
     },
 });
-

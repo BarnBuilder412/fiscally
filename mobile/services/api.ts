@@ -14,6 +14,13 @@ class ApiClient {
     this.baseUrl = API_BASE_URL;
   }
 
+  private normalizeTransaction(transaction: any): Transaction {
+    return {
+      ...transaction,
+      amount: typeof transaction.amount === 'number' ? transaction.amount : parseFloat(transaction.amount),
+    };
+  }
+
   private async getAccessToken(): Promise<string | null> {
     return AsyncStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
   }
@@ -123,6 +130,9 @@ class ApiClient {
     start_date?: string;
     end_date?: string;
     merchant?: string;
+    source?: 'manual' | 'voice' | 'sms' | 'receipt';
+    spend_class?: 'need' | 'want' | 'luxury';
+    is_anomaly?: boolean;
   }): Promise<{ transactions: Transaction[]; total: number; hasMore: boolean }> {
     const queryParams = new URLSearchParams();
     if (params?.limit) queryParams.set('limit', params.limit.toString());
@@ -131,6 +141,9 @@ class ApiClient {
     if (params?.start_date) queryParams.set('start_date', params.start_date);
     if (params?.end_date) queryParams.set('end_date', params.end_date);
     if (params?.merchant) queryParams.set('merchant', params.merchant);
+    if (params?.source) queryParams.set('source', params.source);
+    if (params?.spend_class) queryParams.set('spend_class', params.spend_class);
+    if (typeof params?.is_anomaly === 'boolean') queryParams.set('is_anomaly', String(params.is_anomaly));
 
     const query = queryParams.toString();
     const response = await this.request<{ transactions: any[]; total: number; has_more: boolean }>(
@@ -139,10 +152,7 @@ class ApiClient {
 
     // Convert string amount to number and extract array
     return {
-      transactions: response.transactions.map(t => ({
-        ...t,
-        amount: parseFloat(t.amount),
-      })),
+      transactions: response.transactions.map(t => this.normalizeTransaction(t)),
       total: response.total,
       hasMore: response.has_more,
     };
@@ -150,24 +160,25 @@ class ApiClient {
 
   async getTransactionById(transactionId: string): Promise<Transaction> {
     const transaction = await this.request<any>(`/api/v1/transactions/${transactionId}`);
-    return {
-      ...transaction,
-      amount: parseFloat(transaction.amount),
-    };
+    return this.normalizeTransaction(transaction);
   }
 
   async createTransaction(data: {
     amount: number;
+    currency?: string;
     merchant?: string;
-    category: string;
+    category?: string;
     note?: string;
     source?: 'manual' | 'voice' | 'sms' | 'receipt';
     spend_class?: 'need' | 'want' | 'luxury';
+    transaction_at?: string;
+    raw_sms?: string;
   }): Promise<Transaction> {
-    return this.request<Transaction>('/api/v1/transactions', {
+    const transaction = await this.request<any>('/api/v1/transactions', {
       method: 'POST',
       body: JSON.stringify(data),
     });
+    return this.normalizeTransaction(transaction);
   }
 
   async updateTransaction(
@@ -182,10 +193,11 @@ class ApiClient {
       transaction_at?: string;
     }
   ): Promise<Transaction> {
-    return this.request<Transaction>(`/api/v1/transactions/${transactionId}`, {
+    const transaction = await this.request<any>(`/api/v1/transactions/${transactionId}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
     });
+    return this.normalizeTransaction(transaction);
   }
 
   async deleteTransaction(transactionId: string): Promise<void> {
@@ -195,9 +207,34 @@ class ApiClient {
   }
 
   async submitCategoryCorrection(transactionId: string, newCategory: string): Promise<Transaction> {
-    return this.request<Transaction>(`/api/v1/transactions/${transactionId}/category-correction`, {
+    const transaction = await this.request<any>(`/api/v1/transactions/${transactionId}/category-correction`, {
       method: 'POST',
       body: JSON.stringify({ new_category: newCategory }),
+    });
+    return this.normalizeTransaction(transaction);
+  }
+
+  async ingestSmsTransactionsBatch(
+    transactions: Array<{
+      amount: number;
+      currency?: string;
+      merchant?: string;
+      category?: string;
+      transaction_at?: string;
+      raw_sms?: string;
+      sms_sender?: string;
+      dedupe_key?: string;
+    }>
+  ): Promise<{
+    received_count: number;
+    created_count: number;
+    duplicate_count: number;
+    failed_count: number;
+    created_transaction_ids: string[];
+  }> {
+    return this.request('/api/v1/transactions/sms/batch', {
+      method: 'POST',
+      body: JSON.stringify({ transactions }),
     });
   }
 
@@ -255,6 +292,7 @@ class ApiClient {
     spend_class?: 'need' | 'want' | 'luxury';
     confidence: number;
     needs_review: boolean;
+    duplicate_suspected?: boolean;
     reason?: string;
     transaction?: Transaction;
   }> {
@@ -278,7 +316,11 @@ class ApiClient {
       throw new Error(error.detail || 'Receipt parsing failed');
     }
 
-    return response.json();
+    const payload = await response.json();
+    if (payload?.transaction) {
+      payload.transaction = this.normalizeTransaction(payload.transaction);
+    }
+    return payload;
   }
 
   // Chat

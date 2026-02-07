@@ -29,9 +29,17 @@ const FILTER_OPTIONS = [
   { id: 'more', label: 'More' },
 ];
 
+const SPEND_CLASS_OPTIONS: Array<{ id: 'all' | 'need' | 'want' | 'luxury'; label: string }> = [
+  { id: 'all', label: 'All Types' },
+  { id: 'need', label: 'Need' },
+  { id: 'want', label: 'Want' },
+  { id: 'luxury', label: 'Luxury' },
+];
+
 export default function TransactionsScreen() {
   const router = useRouter();
   const [selectedFilter, setSelectedFilter] = useState('all');
+  const [selectedSpendClass, setSelectedSpendClass] = useState<'all' | 'need' | 'want' | 'luxury'>('all');
   const [refreshing, setRefreshing] = useState(false);
 
   const {
@@ -58,17 +66,26 @@ export default function TransactionsScreen() {
   // Handle filter change
   const handleFilterChange = useCallback((filterId: string) => {
     setSelectedFilter(filterId);
-    const category = filterId === 'all' ? undefined : filterId;
-    fetchTransactions({ category, reset: true });
-  }, [fetchTransactions]);
+    const category = filterId === 'all' || filterId === 'more' ? undefined : filterId;
+    const spendClass = selectedSpendClass === 'all' ? undefined : selectedSpendClass;
+    fetchTransactions({ category, spend_class: spendClass, reset: true });
+  }, [fetchTransactions, selectedSpendClass]);
+
+  const handleSpendClassChange = useCallback((value: 'all' | 'need' | 'want' | 'luxury') => {
+    setSelectedSpendClass(value);
+    const category = selectedFilter === 'all' || selectedFilter === 'more' ? undefined : selectedFilter;
+    const spendClass = value === 'all' ? undefined : value;
+    fetchTransactions({ category, spend_class: spendClass, reset: true });
+  }, [fetchTransactions, selectedFilter]);
 
   // Handle pull-to-refresh
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    const category = selectedFilter === 'all' ? undefined : selectedFilter;
-    await fetchTransactions({ category, reset: true });
+    const category = selectedFilter === 'all' || selectedFilter === 'more' ? undefined : selectedFilter;
+    const spendClass = selectedSpendClass === 'all' ? undefined : selectedSpendClass;
+    await fetchTransactions({ category, spend_class: spendClass, reset: true });
     setRefreshing(false);
-  }, [fetchTransactions, selectedFilter]);
+  }, [fetchTransactions, selectedFilter, selectedSpendClass]);
 
   // Handle infinite scroll
   const handleEndReached = useCallback(() => {
@@ -78,26 +95,49 @@ export default function TransactionsScreen() {
   }, [isLoadingMore, hasMore, fetchMoreTransactions]);
 
   const renderHeader = () => (
-    <View style={styles.filterContainer}>
-      {FILTER_OPTIONS.map((filter) => (
-        <TouchableOpacity
-          key={filter.id}
-          style={[
-            styles.filterButton,
-            selectedFilter === filter.id && styles.filterButtonActive,
-          ]}
-          onPress={() => handleFilterChange(filter.id)}
-        >
-          <Text
+    <View>
+      <View style={styles.filterContainer}>
+        {FILTER_OPTIONS.map((filter) => (
+          <TouchableOpacity
+            key={filter.id}
             style={[
-              styles.filterText,
-              selectedFilter === filter.id && styles.filterTextActive,
+              styles.filterButton,
+              selectedFilter === filter.id && styles.filterButtonActive,
             ]}
+            onPress={() => handleFilterChange(filter.id)}
           >
-            {filter.label}
-          </Text>
-        </TouchableOpacity>
-      ))}
+            <Text
+              style={[
+                styles.filterText,
+                selectedFilter === filter.id && styles.filterTextActive,
+              ]}
+            >
+              {filter.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      <View style={styles.subFilterContainer}>
+        {SPEND_CLASS_OPTIONS.map((option) => (
+          <TouchableOpacity
+            key={option.id}
+            style={[
+              styles.subFilterButton,
+              selectedSpendClass === option.id && styles.subFilterButtonActive,
+            ]}
+            onPress={() => handleSpendClassChange(option.id)}
+          >
+            <Text
+              style={[
+                styles.subFilterText,
+                selectedSpendClass === option.id && styles.subFilterTextActive,
+              ]}
+            >
+              {option.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
     </View>
   );
 
@@ -187,7 +227,15 @@ const styles = StyleSheet.create({
   filterContainer: {
     flexDirection: 'row',
     paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.sm,
+    gap: Spacing.sm,
+  },
+  subFilterContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.md,
     gap: Spacing.sm,
   },
   filterButton: {
@@ -206,6 +254,27 @@ const styles = StyleSheet.create({
   },
   filterTextActive: {
     color: Colors.white,
+  },
+  subFilterButton: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: Colors.gray200,
+    backgroundColor: Colors.surface,
+  },
+  subFilterButtonActive: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primary + '15',
+  },
+  subFilterText: {
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.medium,
+    color: Colors.textSecondary,
+  },
+  subFilterTextActive: {
+    color: Colors.primary,
+    fontWeight: FontWeight.semibold,
   },
   listContent: {
     backgroundColor: Colors.background,
