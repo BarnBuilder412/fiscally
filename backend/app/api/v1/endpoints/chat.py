@@ -44,7 +44,10 @@ async def chat(
     - "I want to reduce Swiggy orders" → stored as a preference
     
     All interactions are traced via Opik for observability.
+    Returns reasoning steps showing the AI's chain-of-thought process.
     """
+    from app.schemas.chat import ReasoningStep
+    
     # Initialize AI components
     context_manager = ContextManager(db)
     agent = ChatAgent(context_manager)
@@ -61,10 +64,23 @@ async def chat(
             conversation_history=history
         )
         
+        # Convert reasoning steps to API schema format
+        reasoning_steps = None
+        if result.reasoning_steps:
+            reasoning_steps = [
+                ReasoningStep(
+                    step_type=step.get("step_type", "analyzing"),
+                    content=step.get("content", ""),
+                    data=step.get("data")
+                )
+                for step in result.reasoning_steps
+            ]
+        
         return ChatResponse(
             response=result.response,
             memory_updated=result.memory_updated,
-            new_fact=result.new_fact
+            new_fact=result.new_fact,
+            reasoning_steps=reasoning_steps
         )
     except Exception as e:
         print(f"Chat error: {e}")

@@ -206,7 +206,13 @@ class ApiClient {
   // Chat
   async sendChatMessage(message: string): Promise<{
     response: string;
-    insights?: Insight[];
+    memory_updated?: boolean;
+    new_fact?: string;
+    reasoning_steps?: Array<{
+      step_type: string;
+      content: string;
+      data?: Record<string, any>;
+    }>;
   }> {
     return this.request('/api/v1/chat', {
       method: 'POST',

@@ -8,6 +8,13 @@ import { Colors, Spacing } from '@/constants/theme';
 import { AnimatedSplash } from '@/components/AnimatedSplash';
 import '../global.css';
 
+import { LogBox } from 'react-native';
+
+LogBox.ignoreLogs([
+  'SafeAreaView has been deprecated',
+  'Expo AV has been deprecated',
+]);
+
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {

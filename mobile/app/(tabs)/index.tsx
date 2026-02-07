@@ -22,21 +22,24 @@ import {
   BorderRadius,
   Shadows,
 } from '@/constants/theme';
-import { Card } from '@/components';
+import { Card, SmartAlerts } from '@/components';
 import { api } from '@/services/api';
 import { Transaction } from '@/types';
 import { eventBus, Events } from '@/services/eventBus';
 
 const { width } = Dimensions.get('window');
 
-// Goal card component
+// Goal card component with timeline projections
 const GoalCard = ({
   goal,
   current,
   target,
   icon,
   color,
-  monthlyContribution
+  monthlyContribution,
+  projectedDate,
+  onTrack,
+  targetDate,
 }: {
   goal: string;
   current: number;
@@ -44,6 +47,9 @@ const GoalCard = ({
   icon: string;
   color: string;
   monthlyContribution?: number;
+  projectedDate?: string;
+  onTrack?: boolean;
+  targetDate?: string;
 }) => {
   const progress = Math.min((current / target) * 100, 100);
 
@@ -53,8 +59,33 @@ const GoalCard = ({
     return `₹${amount}`;
   };
 
+  const formatDate = (dateStr?: string) => {
+    if (!dateStr) return null;
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+  };
+
+  // Determine status display
+  const getStatusDisplay = () => {
+    if (onTrack === undefined) return null;
+    if (onTrack) {
+      return { text: 'On Track', color: Colors.success, icon: 'checkmark-circle' };
+    }
+    return { text: 'At Risk', color: Colors.warning, icon: 'alert-circle' };
+  };
+
+  const status = getStatusDisplay();
+
   return (
     <View style={[styles.goalCard, { borderColor: color + '30' }]}>
+      {/* Status badge */}
+      {status && (
+        <View style={[styles.goalStatusBadge, { backgroundColor: status.color + '15' }]}>
+          <Ionicons name={status.icon as any} size={10} color={status.color} />
+          <Text style={[styles.goalStatusText, { color: status.color }]}>{status.text}</Text>
+        </View>
+      )}
+
       <View style={[styles.goalIconContainer, { backgroundColor: color + '15' }]}>
         <Ionicons name={icon as any} size={20} color={color} />
       </View>
@@ -66,12 +97,29 @@ const GoalCard = ({
         <View style={[styles.goalProgressFill, { width: `${progress}%`, backgroundColor: color }]} />
       </View>
       <Text style={[styles.goalPercent, { color }]}>{Math.round(progress)}%</Text>
+
+      {/* Monthly contribution */}
       {monthlyContribution !== undefined && monthlyContribution > 0 && (
         <View style={styles.goalMonthlyContainer}>
           <Ionicons name="trending-up" size={12} color={Colors.primary} />
           <Text style={styles.goalMonthlyText}>
-            {formatAmount(monthlyContribution)}/month allocated
+            {formatAmount(monthlyContribution)}/month
           </Text>
+        </View>
+      )}
+
+      {/* Projected completion date */}
+      {projectedDate && (
+        <View style={styles.goalTimelineContainer}>
+          <Ionicons name="calendar-outline" size={12} color={Colors.gray500} />
+          <Text style={styles.goalTimelineText}>
+            Est. {formatDate(projectedDate)}
+          </Text>
+          {targetDate && (
+            <Text style={styles.goalTargetText}>
+              (Target: {formatDate(targetDate)})
+            </Text>
+          )}
         </View>
       )}
     </View>
@@ -381,6 +429,7 @@ export default function HomeScreen() {
       progressPercentage: g.progress_percentage,
       onTrack: g.on_track,
       projectedDate: g.projected_completion_date,
+      targetDate: g.target_date,
     }))
     : (() => {
       // Local calculation: distribute savings across goals by priority (order in array)
@@ -409,6 +458,8 @@ export default function HomeScreen() {
           monthlyContribution,
           progressPercentage,
           onTrack: incomeAmount > 0 && monthlySavings > 0,
+          projectedDate: undefined, // Calculated by backend
+          targetDate: details?.targetDate,
         };
       }).filter((g): g is NonNullable<typeof g> => g !== null);
     })();
@@ -485,6 +536,15 @@ export default function HomeScreen() {
           </View>
         </Card>
 
+        {/* Smart Alerts */}
+        <View style={styles.section}>
+          <SmartAlerts
+            transactions={transactions}
+            budgetPercentage={budgetPercentage}
+            onViewTransaction={(t) => router.push('/transactions')}
+          />
+        </View>
+
         {/* Active Goals */}
         {goalData.length > 0 && (
           <View style={styles.section}>
@@ -511,6 +571,9 @@ export default function HomeScreen() {
                   icon={goal.icon}
                   color={goal.color}
                   monthlyContribution={goal.monthlyContribution}
+                  projectedDate={goal.projectedDate}
+                  onTrack={goal.onTrack}
+                  targetDate={goal.targetDate}
                 />
               ))}
             </ScrollView>
@@ -927,5 +990,36 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     color: Colors.textSecondary,
     marginTop: Spacing.xs,
+  },
+  // Goal timeline projection styles
+  goalStatusBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  goalStatusText: {
+    fontSize: 9,
+    fontWeight: FontWeight.semibold,
+  },
+  goalTimelineContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginTop: Spacing.xs,
+  },
+  goalTimelineText: {
+    fontSize: FontSize.xs,
+    color: Colors.gray500,
+  },
+  goalTargetText: {
+    fontSize: FontSize.xs,
+    color: Colors.gray400,
   },
 });

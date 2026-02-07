@@ -36,6 +36,7 @@ class ChatResponse:
     response: str
     memory_updated: bool
     new_fact: Optional[str]
+    reasoning_steps: Optional[List[Dict[str, Any]]] = None  # Chain-of-thought steps
 
 
 class TransactionAgent:
@@ -226,6 +227,9 @@ class ChatAgent:
         """
         from opik import opik_context
         
+        # Initialize reasoning steps list to track chain-of-thought
+        reasoning_steps = []
+        
         # Log input metadata
         opik_context.update_current_span(metadata={
             "user_id": user_id,
@@ -234,13 +238,50 @@ class ChatAgent:
             "history_length": len(conversation_history) if conversation_history else 0
         })
         
-        # Load full user context
+        # Step 1: Load full user context
+        reasoning_steps.append({
+            "step_type": "analyzing",
+            "content": "Loading your financial profile and preferences"
+        })
         user_context = await self.context.load_full_context(user_id)
         
-        # Query relevant transaction data based on message
-        transaction_data = await self._get_relevant_data(user_id, message)
+        # Add context insights to reasoning
+        profile = user_context.get("profile", {})
+        goals = user_context.get("goals", [])
+        patterns = user_context.get("patterns", {})
         
-        # Generate response
+        if goals:
+            goal_names = [g.get("name", g.get("label", "goal")) for g in goals[:3]]
+            reasoning_steps.append({
+                "step_type": "context",
+                "content": f"Found {len(goals)} active goals: {', '.join(goal_names)}"
+            })
+        
+        if patterns:
+            reasoning_steps.append({
+                "step_type": "pattern",
+                "content": "Detected spending patterns in your transaction history"
+            })
+        
+        # Step 2: Query relevant transaction data based on message
+        reasoning_steps.append({
+            "step_type": "querying",
+            "content": "Searching your transactions for relevant data"
+        })
+        transaction_data, query_info = await self._get_relevant_data_with_info(user_id, message)
+        
+        if query_info:
+            reasoning_steps.append({
+                "step_type": "data",
+                "content": query_info,
+                "data": {"has_results": transaction_data is not None}
+            })
+        
+        # Step 3: Generate response
+        reasoning_steps.append({
+            "step_type": "calculating",
+            "content": "Generating personalized insight based on your data"
+        })
         response = await self.llm.chat(
             message=message,
             user_context=user_context,
@@ -248,7 +289,7 @@ class ChatAgent:
             conversation_history=conversation_history
         )
         
-        # Check if user shared a fact to remember
+        # Step 4: Check if user shared a fact to remember
         memory_result = await self.llm.extract_memory(message)
         memory_updated = False
         new_fact = None
@@ -258,21 +299,99 @@ class ChatAgent:
             category = memory_result.get("category", "general")
             await self.context.add_memory_fact(user_id, new_fact, category)
             memory_updated = True
+            reasoning_steps.append({
+                "step_type": "memory",
+                "content": f"Remembered: {new_fact}"
+            })
+        
+        # Final insight step
+        reasoning_steps.append({
+            "step_type": "insight",
+            "content": "Generated response with specific numbers and actionable advice"
+        })
         
         result = ChatResponse(
             response=response,
             memory_updated=memory_updated,
-            new_fact=new_fact
+            new_fact=new_fact,
+            reasoning_steps=reasoning_steps
         )
         
         # Log output metadata
         opik_context.update_current_span(metadata={
             "response_length": len(response) if response else 0,
             "memory_updated": memory_updated,
-            "has_new_fact": new_fact is not None
+            "has_new_fact": new_fact is not None,
+            "reasoning_step_count": len(reasoning_steps)
         })
         
         return result
+    
+    async def _get_relevant_data_with_info(
+        self, 
+        user_id: str, 
+        message: str
+    ) -> tuple[Optional[str], Optional[str]]:
+        """
+        Query DB for data relevant to user's question.
+        Returns (data, human-readable description of what was queried).
+        """
+        message_lower = message.lower()
+        
+        # Detect what data to fetch based on keywords
+        if any(word in message_lower for word in ["spent", "spend", "spending", "how much"]):
+            summary = await self.context.get_spending_summary(user_id, "month")
+            total = sum(summary.get("by_category", {}).values()) if summary else 0
+            txn_count = summary.get("transaction_count", 0) if summary else 0
+            return (
+                self.context.format_summary_for_llm(summary),
+                f"Analyzed {txn_count} transactions totaling ₹{total:,.0f}"
+            )
+        
+        if any(word in message_lower for word in ["transaction", "recent", "last", "history"]):
+            transactions = await self.context.get_transactions(user_id, days=30)
+            return (
+                self.context.format_transactions_for_llm(transactions),
+                f"Retrieved {len(transactions)} recent transactions"
+            )
+        
+        # Check for specific category mentions
+        categories = ["food", "transport", "shopping", "bills", "entertainment", "groceries"]
+        for cat in categories:
+            if cat in message_lower:
+                transactions = await self.context.get_transactions(
+                    user_id, 
+                    days=30, 
+                    category=cat
+                )
+                total = sum(t.get("amount", 0) for t in transactions)
+                return (
+                    self.context.format_transactions_for_llm(transactions),
+                    f"Found {len(transactions)} {cat} transactions (₹{total:,.0f} total)"
+                )
+        
+        # Check for merchant mentions
+        merchants = ["swiggy", "zomato", "amazon", "uber", "ola", "flipkart"]
+        for merchant in merchants:
+            if merchant in message_lower:
+                transactions = await self.context.get_transactions(
+                    user_id, 
+                    days=30, 
+                    merchant=merchant
+                )
+                total = sum(t.get("amount", 0) for t in transactions)
+                return (
+                    self.context.format_transactions_for_llm(transactions),
+                    f"Found {len(transactions)} {merchant.title()} orders (₹{total:,.0f})"
+                )
+        
+        # Default: get recent summary
+        summary = await self.context.get_spending_summary(user_id, "month")
+        txn_count = summary.get("transaction_count", 0) if summary else 0
+        return (
+            self.context.format_summary_for_llm(summary),
+            f"Loaded your monthly spending summary ({txn_count} transactions)"
+        )
     
     async def _get_relevant_data(
         self, 

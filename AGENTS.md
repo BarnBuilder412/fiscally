@@ -164,7 +164,8 @@ mobile/
 │   ├── TransactionList.tsx
 │   ├── CategorySelector.tsx
 │   ├── InsightCard.tsx
-│   └── ActionableNotification.tsx
+│   ├── ActionableNotification.tsx
+│   └── SmartAlerts.tsx         # Anomaly & budget alerts
 ├── services/
 │   ├── api.ts              # API client
 │   ├── sms-reader.ts       # Android SMS reading
@@ -215,10 +216,14 @@ All endpoints follow `/api/v1/` convention:
 ### Transactions
 - `GET /api/v1/transactions?limit=50&offset=0&category=food` - List with filters
 - `POST /api/v1/transactions` - Create transaction (manual or SMS-parsed)
-- `POST /api/v1/transactions/voice` - Parse voice audio to transaction
+- `POST /api/v1/transactions/voice` - Parse voice audio (Whisper + LLM)
+
+### Goals
+- `GET /api/v1/goals/progress` - Get goal allocations, projections, and "on track" status
+- `POST /api/v1/goals/sync` - Sync goals from mobile
 
 ### AI Features
-- `POST /api/v1/chat` - Conversational query with context
+- `POST /api/v1/chat` - Conversational query (returns response + reasoning_steps)
 - `GET /api/v1/insights` - Fetch weekly summary, patterns, alerts
 
 ## Development Workflow
@@ -330,7 +335,13 @@ When implementing features:
 - **Trends Page Refined**: Expandable categories, top-3 view, and agentic sub-categorization implemented.
 - **Home Page Enhanced**: Added "Agentic Coach" card and goal tracking visualization.
 - **Backend Foundation**: Auth, DB, and basic API endpoints are stable.
-- **Next Focus**: Advanced AI integration (SMS parsing, pattern detection) and Voice Input.
+- **Hackathon Features (Phase 3)**:
+  - **Chain-of-Thought**: Visual reasoning steps in chat (Backend + Mobile).
+  - **Smart Goals**: Timeline projections and "On Track" status.
+  - **Voice Input**: Polished recording, transcription, and auto-categorization.
+  - **Smart Alerts**: Anomaly detection and budget warnings on home screen.
+  - **Observability**: Opik integration for complete LLM tracing.
+- **Next Focus**: Advanced SMS parsing (Android) and production deployment.
 
 ### How to keep development “continuous” across multiple agents
 - Treat this file (`AGENTS.md`) as the shared handoff doc:
@@ -398,6 +409,7 @@ When implementing features:
 backend/
 ├── main.py                          # FastAPI app entry
 ├── requirements.txt                 # Python dependencies
+├── seed_demo_data.py                # Demo data generation script
 ├── .env.example                     # Environment template
 ├── alembic.ini                      # Alembic config
 ├── alembic/                         # Database migrations
@@ -422,7 +434,8 @@ backend/
     │   ├── prompts.py
     │   ├── llm_client.py
     │   ├── context_manager.py
-    │   └── agents.py
+    │   ├── agents.py
+    │   └── evaluation/              # Opik evaluation experiments
     ├── core/
     │   ├── __init__.py
     │   └── security.py              # JWT + password utils
@@ -608,10 +621,42 @@ The UI follows the "Stitch" design system from HTML mockups in:
 - `stitch_home_dashboard (7)/` - Onboarding income selection
 - `stitch_home_dashboard (8)/` - SMS permission onboarding
 
+#### Phase 3: Intelligence & Polish (Hackathon Prep) ✅ COMPLETED
+**Status:** Key intelligence features implemented and demo-ready (2026-02-07).
+
+##### 1. Chain-of-Thought Visualization ✅
+- **Backend**: `ChatAgent` returns `reasoning_steps` (analyzing, querying, calculating, etc.).
+- **Mobile**:
+  - `ThinkingIndicator`: Animated step-by-step reveal during latency.
+  - `ReasoningStepsDisplay`: Expandable dropdown showing the AI's logic.
+  - Impact: Makes AI intelligence visible and trusted.
+
+##### 2. Goal Timeline Projections ✅
+- **Backend**: `/api/v1/goals/progress` calculates `projected_completion_date` based on savings rate.
+- **Mobile**: `GoalCard` updated to show:
+  - "On Track" / "At Risk" badges.
+  - Projected completion dates vs deadlines.
+
+##### 3. Voice Input Polish ✅
+- **Backend**: `/api/v1/transactions/voice` uses Whisper + LLM to parse `amount`, `merchant`, `category`.
+- **Mobile**: `voice-input.tsx` features:
+  - Real-time waveform animation.
+  - Transcript display with auto-correction editing.
+  - Haptic feedback for interactions.
+
+##### 4. Smart Notifications ✅
+- **Mobile**: `SmartAlerts` component on Home screen:
+  - **Anomalies**: "Unusual spend of ₹25k at Apple Store".
+  - **Budget**: "90% of budget used with 10 days left".
+- **Backend**: `Transaction` model includes `is_anomaly` and `anomaly_reason`.
+
+##### 5. Observability & Data ✅
+- **Opik**: Full tracing of `chat`, `categorization`, and `voice_parsing` flows.
+- **Demo Data**: `backend/seed_demo_data.py` generates realistic 3-month history + patterns.
+
 #### Remaining Mobile Work
 - [ ] Implement SMS parsing (Android)
-- [ ] Voice input integration with backend
-- [ ] Push notifications setup
+- [ ] Push notifications setup (Firebase)
 - [ ] Polish transitions and animations
 
 #### Commands

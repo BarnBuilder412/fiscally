@@ -4,4 +4,5 @@ export { InsightCard } from './InsightCard';
 export { AddExpenseButton } from './AddExpenseButton';
 export { GoalDetailForm } from './GoalDetailForm';
 export type { GoalDetailData } from './GoalDetailForm';
+export { SmartAlerts } from './SmartAlerts';
 export * from './ui';

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'expo-router';
 import Markdown from 'react-native-markdown-display';
 import {
@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,7 +21,7 @@ import {
   FontWeight,
   BorderRadius
 } from '@/constants/theme';
-import { ChatMessage } from '@/types';
+import { ChatMessage, ReasoningStep } from '@/types';
 import { api } from '@/services/api';
 
 const SUGGESTED_QUESTIONS = [
@@ -39,11 +40,108 @@ const INITIAL_MESSAGES: ChatMessage[] = [
   },
 ];
 
+// Icon mapping for reasoning step types
+const STEP_ICONS: Record<string, { icon: string; color: string }> = {
+  analyzing: { icon: 'person-circle-outline', color: '#8B5CF6' },
+  context: { icon: 'flag-outline', color: '#22C55E' },
+  pattern: { icon: 'trending-up-outline', color: '#F59E0B' },
+  querying: { icon: 'search-outline', color: '#3B82F6' },
+  data: { icon: 'stats-chart-outline', color: '#06B6D4' },
+  calculating: { icon: 'calculator-outline', color: '#EC4899' },
+  memory: { icon: 'bookmark-outline', color: '#8B5CF6' },
+  insight: { icon: 'bulb-outline', color: '#F59E0B' },
+};
+
+// Animated ThinkingIndicator component
+const ThinkingIndicator = ({ steps }: { steps: ReasoningStep[] }) => {
+  const [visibleSteps, setVisibleSteps] = useState<number>(0);
+  const animatedValue = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    // Reveal steps one by one
+    const timer = setInterval(() => {
+      setVisibleSteps(prev => {
+        if (prev < steps.length) return prev + 1;
+        clearInterval(timer);
+        return prev;
+      });
+    }, 400);
+
+    return () => clearInterval(timer);
+  }, [steps.length]);
+
+  if (steps.length === 0) return null;
+
+  return (
+    <View style={styles.thinkingContainer}>
+      <View style={styles.thinkingHeader}>
+        <Ionicons name="sparkles" size={16} color={Colors.primary} />
+        <Text style={styles.thinkingTitle}>Thinking...</Text>
+      </View>
+      {steps.slice(0, visibleSteps).map((step, index) => {
+        const stepStyle = STEP_ICONS[step.step_type] || STEP_ICONS.analyzing;
+        return (
+          <View key={index} style={styles.thinkingStep}>
+            <View style={[styles.stepIcon, { backgroundColor: stepStyle.color + '20' }]}>
+              <Ionicons name={stepStyle.icon as any} size={14} color={stepStyle.color} />
+            </View>
+            <Text style={styles.stepText}>{step.content}</Text>
+          </View>
+        );
+      })}
+      {visibleSteps < steps.length && (
+        <View style={styles.thinkingDotsRow}>
+          <View style={[styles.typingDot, styles.typingDot1]} />
+          <View style={[styles.typingDot, styles.typingDot2]} />
+          <View style={[styles.typingDot, styles.typingDot3]} />
+        </View>
+      )}
+    </View>
+  );
+};
+
+// Component to display reasoning steps in completed messages
+const ReasoningStepsDisplay = ({ steps }: { steps: ReasoningStep[] }) => {
+  const [expanded, setExpanded] = useState(false);
+
+  if (!steps || steps.length === 0) return null;
+
+  return (
+    <TouchableOpacity onPress={() => setExpanded(!expanded)} style={styles.reasoningToggle}>
+      <View style={styles.reasoningToggleHeader}>
+        <Ionicons name="sparkles" size={12} color={Colors.primary} />
+        <Text style={styles.reasoningToggleText}>
+          {expanded ? 'Hide reasoning' : `View reasoning (${steps.length} steps)`}
+        </Text>
+        <Ionicons
+          name={expanded ? 'chevron-up' : 'chevron-down'}
+          size={12}
+          color={Colors.gray500}
+        />
+      </View>
+      {expanded && (
+        <View style={styles.reasoningStepsList}>
+          {steps.map((step, index) => {
+            const stepStyle = STEP_ICONS[step.step_type] || STEP_ICONS.analyzing;
+            return (
+              <View key={index} style={styles.reasoningStepItem}>
+                <Ionicons name={stepStyle.icon as any} size={12} color={stepStyle.color} />
+                <Text style={styles.reasoningStepText}>{step.content}</Text>
+              </View>
+            );
+          })}
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+};
+
 export default function ChatScreen() {
   const router = useRouter();
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [thinkingSteps, setThinkingSteps] = useState<ReasoningStep[]>([]);
   const scrollViewRef = useRef<ScrollView>(null);
 
   const handleSend = async (text?: string) => {
@@ -60,6 +158,7 @@ export default function ChatScreen() {
     setMessages(prev => [...prev, userMessage]);
     setInputText('');
     setIsTyping(true);
+    setThinkingSteps([]);
 
     setTimeout(() => {
       scrollViewRef.current?.scrollToEnd({ animated: true });
@@ -69,11 +168,15 @@ export default function ChatScreen() {
       // Call the real AI chat API
       const response = await api.sendChatMessage(messageText);
 
+      // Store reasoning steps for display
+      const reasoningSteps = response.reasoning_steps as ReasoningStep[] | undefined;
+
       const aiResponse: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
         content: response.response,
         timestamp: new Date().toISOString(),
+        reasoning_steps: reasoningSteps,
       };
 
       setMessages(prev => [...prev, aiResponse]);
@@ -89,6 +192,7 @@ export default function ChatScreen() {
       console.error('Chat API error:', error);
     } finally {
       setIsTyping(false);
+      setThinkingSteps([]);
       setTimeout(() => {
         scrollViewRef.current?.scrollToEnd({ animated: true });
       }, 100);
@@ -149,29 +253,34 @@ export default function ChatScreen() {
               {message.role === 'user' ? (
                 <Text style={styles.userText}>{message.content}</Text>
               ) : (
-                <Markdown
-                  style={{
-                    body: {
-                      color: Colors.textPrimary,
-                      fontSize: FontSize.md,
-                      lineHeight: 22,
-                    },
-                    paragraph: {
-                      marginTop: 0,
-                      marginBottom: 10,
-                    },
-                    strong: {
-                      fontFamily: 'Inter-Bold', // Ensure you have this font or use fontWeight
-                      fontWeight: '700',
-                      color: Colors.primary,
-                    },
-                    link: {
-                      color: Colors.info,
-                    },
-                  }}
-                >
-                  {message.content}
-                </Markdown>
+                <View>
+                  <Markdown
+                    style={{
+                      body: {
+                        color: Colors.textPrimary,
+                        fontSize: FontSize.md,
+                        lineHeight: 22,
+                      },
+                      paragraph: {
+                        marginTop: 0,
+                        marginBottom: 10,
+                      },
+                      strong: {
+                        fontFamily: 'Inter-Bold',
+                        fontWeight: '700',
+                        color: Colors.primary,
+                      },
+                      link: {
+                        color: Colors.info,
+                      },
+                    }}
+                  >
+                    {message.content}
+                  </Markdown>
+                  {message.reasoning_steps && message.reasoning_steps.length > 0 && (
+                    <ReasoningStepsDisplay steps={message.reasoning_steps} />
+                  )}
+                </View>
               )}
             </View>
           ))}
@@ -381,5 +490,82 @@ const styles = StyleSheet.create({
   },
   sendButtonActive: {
     backgroundColor: Colors.primary,
+  },
+  // Chain-of-thought thinking styles
+  thinkingContainer: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.primary + '1A',
+    alignSelf: 'flex-start',
+    maxWidth: '90%',
+  },
+  thinkingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginBottom: Spacing.sm,
+  },
+  thinkingTitle: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: Colors.primary,
+  },
+  thinkingStep: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginVertical: 4,
+  },
+  stepIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepText: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    flex: 1,
+  },
+  thinkingDotsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: Spacing.sm,
+    marginLeft: 28,
+  },
+  // Reasoning steps toggle in completed messages
+  reasoningToggle: {
+    marginTop: Spacing.sm,
+    paddingTop: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: Colors.gray200,
+  },
+  reasoningToggleHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  reasoningToggleText: {
+    fontSize: FontSize.xs,
+    color: Colors.gray500,
+    flex: 1,
+  },
+  reasoningStepsList: {
+    marginTop: Spacing.sm,
+  },
+  reasoningStepItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginVertical: 2,
+  },
+  reasoningStepText: {
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+    flex: 1,
   },
 });

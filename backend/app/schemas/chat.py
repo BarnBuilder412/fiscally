@@ -11,6 +11,13 @@ class ChatMessage(BaseModel):
     content: str
 
 
+class ReasoningStep(BaseModel):
+    """A single step in the AI's chain-of-thought reasoning."""
+    step_type: str = Field(..., description="Type: 'analyzing', 'querying', 'pattern', 'calculating', 'insight'")
+    content: str = Field(..., description="Description of what the AI did in this step")
+    data: Optional[Dict[str, Any]] = Field(None, description="Optional data associated with this step")
+
+
 class ChatRequest(BaseModel):
     """Request to chat with Fiscally AI."""
     message: str = Field(..., min_length=1, max_length=2000, description="User's message")
@@ -26,6 +33,10 @@ class ChatResponse(BaseModel):
     memory_updated: bool = Field(False, description="Whether a new fact was stored")
     new_fact: Optional[str] = Field(None, description="Fact that was stored, if any")
     trace_id: Optional[str] = Field(None, description="Opik trace ID for feedback logging")
+    reasoning_steps: Optional[List[ReasoningStep]] = Field(
+        None, 
+        description="Chain-of-thought reasoning steps the AI performed"
+    )
 
 
 class ChatFeedbackRequest(BaseModel):

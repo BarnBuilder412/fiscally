@@ -180,6 +180,54 @@ Answers questions like:
 - "Why am I over budget this month?"
 
 ---
+
+## 🔍 LLM Observability (Opik)
+
+Fiscally uses **Opik** for complete LLM traceability and evaluation.
+
+### Traced Functions
+All AI operations are automatically traced:
+- `categorize_transaction` - Auto-categorization calls
+- `detect_anomaly` - Spending anomaly detection
+- `generate_insight` - Insight generation
+- `chat_response` - Chat agent completions
+- `parse_voice_input` - Voice transcription parsing
+
+### Viewing Traces
+```bash
+# Traces are visible at:
+# https://www.comet.com/opik/fiscally/traces
+```
+
+### Evaluation Experiments
+Run evaluation experiments to benchmark LLM performance:
+
+```bash
+cd backend
+source venv/bin/activate
+
+# Run categorization accuracy evaluation
+python -m app.ai.evaluation.experiments
+
+# View results in Opik dashboard
+```
+
+### Evaluation Metrics
+- **Categorization Accuracy**: % of correct category predictions
+- **Hallucination Check**: LLM-judged factual accuracy
+- **Context Relevance**: How well responses use provided context
+- **Moderation**: Content safety scoring
+
+### Configuration
+```bash
+# Required in .env:
+OPIK_API_KEY=your_opik_api_key
+OPIK_WORKSPACE=your_workspace_name
+OPIK_PROJECT_NAME=fiscally
+```
+
+---
+
 ## 🔑 Key Concepts
 
 ### Budget-Based Allocation

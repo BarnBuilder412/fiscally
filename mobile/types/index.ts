@@ -17,6 +17,8 @@ export interface Transaction {
   source: 'manual' | 'voice' | 'sms';
   created_at: string;
   user_id: string;
+  is_anomaly?: boolean;
+  anomaly_reason?: string;
 }
 
 export interface Insight {
@@ -33,6 +35,13 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  reasoning_steps?: ReasoningStep[];
+}
+
+export interface ReasoningStep {
+  step_type: 'analyzing' | 'context' | 'pattern' | 'querying' | 'data' | 'calculating' | 'memory' | 'insight';
+  content: string;
+  data?: Record<string, any>;
 }
 
 export interface CategorySpending {
