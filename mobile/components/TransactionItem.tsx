@@ -4,13 +4,22 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 import { getCategoryIcon, getCategoryColor } from '@/constants/categories';
 import { Transaction } from '@/types';
+import { formatCurrency } from '@/utils/currency';
 
 interface TransactionItemProps {
   transaction: Transaction;
   onPress?: () => void;
 }
 
+const spendClassLabels: Record<string, string> = {
+  need: 'Need',
+  want: 'Want',
+  luxury: 'Luxury',
+};
+
 export function TransactionItem({ transaction, onPress }: TransactionItemProps) {
+  const transactionDate = transaction.transaction_at || transaction.created_at;
+
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -38,15 +47,6 @@ export function TransactionItem({ transaction, onPress }: TransactionItemProps) 
     }) + `, ${timeStr}`;
   };
 
-  const formatAmount = (amount: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
-
   return (
     <TouchableOpacity
       style={styles.container}
@@ -69,10 +69,19 @@ export function TransactionItem({ transaction, onPress }: TransactionItemProps) 
               ? (transaction.category.charAt(0).toUpperCase() + transaction.category.slice(1).replace('_', ' '))
               : 'Expense')}
         </Text>
-        <Text style={styles.time}>{formatTime(transaction.created_at)}</Text>
+        <View style={styles.metaRow}>
+          <Text style={styles.time}>{formatTime(transactionDate)}</Text>
+          {transaction.spend_class && (
+            <View style={styles.spendClassBadge}>
+              <Text style={styles.spendClassText}>
+                {spendClassLabels[transaction.spend_class] || transaction.spend_class}
+              </Text>
+            </View>
+          )}
+        </View>
       </View>
 
-      <Text style={styles.amount}>-{formatAmount(transaction.amount)}</Text>
+      <Text style={styles.amount}>-{formatCurrency(transaction.amount, transaction.currency || 'INR')}</Text>
     </TouchableOpacity>
   );
 }
@@ -108,6 +117,24 @@ const styles = StyleSheet.create({
   time: {
     fontSize: FontSize.sm,
     color: Colors.textSecondary,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  spendClassBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.primary + '15',
+  },
+  spendClassText: {
+    fontSize: 10,
+    fontWeight: FontWeight.bold,
+    color: Colors.primary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
   },
   amount: {
     fontSize: FontSize.md,

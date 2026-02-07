@@ -6,7 +6,7 @@ Provides:
 - POST /insights - Generate spending insights on demand
 """
 from datetime import datetime, timedelta
-from typing import Annotated, Optional, List
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -16,11 +16,13 @@ from app.models.user import Transaction
 from app.schemas.chat import (
     ChatRequest,
     ChatResponse,
+    ChatFeedbackRequest,
     InsightRequest,
     InsightResponse,
 )
 from app.ai.agents import ChatAgent, InsightAgent
 from app.ai.context_manager import ContextManager
+from app.ai.feedback import log_chat_feedback
 
 router = APIRouter()
 
@@ -80,6 +82,7 @@ async def chat(
             response=result.response,
             memory_updated=result.memory_updated,
             new_fact=result.new_fact,
+            trace_id=result.trace_id,
             reasoning_steps=reasoning_steps
         )
     except Exception as e:
@@ -88,6 +91,24 @@ async def chat(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Chat processing failed: {str(e)}"
         )
+
+
+@router.post("/feedback")
+async def submit_chat_feedback(
+    request: ChatFeedbackRequest,
+    _current_user: CurrentUser,
+):
+    """Log thumbs up/down feedback for a chat trace."""
+    success = log_chat_feedback(
+        trace_id=request.trace_id,
+        rating=request.rating,
+    )
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to log feedback",
+        )
+    return {"success": True}
 
 
 @router.post("/insights", response_model=InsightResponse)

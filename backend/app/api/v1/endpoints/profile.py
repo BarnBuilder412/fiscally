@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, CurrentUser
 from app.schemas.user import UserResponse, ProfileUpdate
+from app.services.localization import apply_profile_location_defaults
 
 router = APIRouter()
 
@@ -46,6 +47,8 @@ async def update_profile(
                 existing_profile[key] = {**existing_profile[key], **value}
             else:
                 existing_profile[key] = value
+
+        existing_profile = apply_profile_location_defaults(existing_profile)
         
         current_user.profile = existing_profile
         db.commit()

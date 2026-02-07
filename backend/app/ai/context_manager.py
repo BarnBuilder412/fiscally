@@ -7,14 +7,13 @@ This is the interface between AI agents and the database.
 
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
-from dataclasses import dataclass, field, asdict
-from decimal import Decimal
-import json
-import uuid as uuid_module
+from dataclasses import dataclass, field
 
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
+from app.ai.prompts import get_currency_symbol
+from app.services.localization import get_profile_ppp_multiplier
 
 @dataclass
 class UserProfile:
@@ -513,10 +512,19 @@ class ContextManager:
     # =========================================================================
     # FORMAT DATA FOR LLM
     # =========================================================================
+
+    @staticmethod
+    def _format_amount(amount: Any, currency_code: str = "INR") -> str:
+        """Format a numeric amount for LLM context with currency symbol."""
+        symbol = get_currency_symbol(currency_code)
+        if isinstance(amount, (int, float)):
+            return f"{symbol}{amount:,.0f}"
+        return f"{symbol}{amount}"
     
     def format_transactions_for_llm(
         self, 
-        transactions: List[Dict[str, Any]]
+        transactions: List[Dict[str, Any]],
+        currency_code: str = "INR",
     ) -> str:
         """Format transactions as string for LLM context."""
         if not transactions:
@@ -525,10 +533,7 @@ class ContextManager:
         lines = []
         for t in transactions[:20]:  # Limit to avoid token overflow
             amount = t.get('amount', 0)
-            if isinstance(amount, (int, float)):
-                line = f"- ₹{amount:,} at {t.get('merchant', 'Unknown')}"
-            else:
-                line = f"- ₹{amount} at {t.get('merchant', 'Unknown')}"
+            line = f"- {self._format_amount(amount, currency_code=currency_code)} at {t.get('merchant', 'Unknown')}"
             line += f" ({t.get('category', 'other')})"
             if t.get('timestamp'):
                 line += f" on {t['timestamp']}"
@@ -538,19 +543,20 @@ class ContextManager:
     
     def format_summary_for_llm(
         self, 
-        summary: Dict[str, Any]
+        summary: Dict[str, Any],
+        currency_code: str = "INR",
     ) -> str:
         """Format spending summary as string for LLM context."""
         lines = [
-            f"Total spent: ₹{summary.get('total', 0):,}",
+            f"Total spent: {self._format_amount(summary.get('total', 0), currency_code=currency_code)}",
             f"Transactions: {summary.get('transaction_count', 0)}",
-            f"Average: ₹{summary.get('avg_transaction', 0):,.0f}",
+            f"Average: {self._format_amount(summary.get('avg_transaction', 0), currency_code=currency_code)}",
             "",
             "By category:"
         ]
         
         for cat, amount in summary.get('by_category', {}).items():
-            lines.append(f"  - {cat}: ₹{amount:,}")
+            lines.append(f"  - {cat}: {self._format_amount(amount, currency_code=currency_code)}")
         
         return "\n".join(lines)
 
@@ -631,6 +637,9 @@ class ContextManager:
         financial = await self.load_financial_profile(user_id)
         monthly_salary = financial.get("monthly_salary") or 0
         monthly_budget = financial.get("monthly_budget") or 0
+        profile = await self.load_profile(user_id)
+        ppp_multiplier = get_profile_ppp_multiplier(profile)
+        ppp_adjusted_budget = monthly_budget * ppp_multiplier if monthly_budget else 0
         
         # Get current month's spending
         spending = await self.get_spending_summary(user_id, "month")
@@ -656,6 +665,8 @@ class ContextManager:
             "budget_used_percentage": round(budget_used_percentage, 1),
             "expected_savings": expected_savings,
             "savings_vs_expected": monthly_savings - expected_savings,
+            "ppp_multiplier": round(ppp_multiplier, 2),
+            "ppp_adjusted_budget": round(ppp_adjusted_budget, 2),
             "transaction_count": spending.get("transaction_count", 0),
             "expenses_by_category": spending.get("by_category", {}),
         }
@@ -674,6 +685,8 @@ class ContextManager:
             Dict with savings info, allocation matrix, and goals with progress
         """
         from datetime import datetime
+        import math
+        from dateutil.relativedelta import relativedelta
         
         # Get savings calculation
         savings_data = await self.calculate_monthly_savings(user_id)
@@ -791,12 +804,8 @@ class ContextManager:
             months_to_complete = None
             
             if amount_needed > 0 and allocated_monthly > 0:
-                months_to_complete = int(amount_needed / allocated_monthly)
-                projected_date = datetime.now()
-                projected_date = projected_date.replace(
-                    month=(projected_date.month + months_to_complete - 1) % 12 + 1,
-                    year=projected_date.year + (projected_date.month + months_to_complete - 1) // 12
-                )
+                months_to_complete = math.ceil(amount_needed / allocated_monthly)
+                projected_date = datetime.now() + relativedelta(months=months_to_complete)
                 projected_completion_date = projected_date.strftime("%Y-%m-%d")
                 
                 if target_date_str:
@@ -815,8 +824,6 @@ class ContextManager:
                 "icon": goal.get("icon"),
                 "color": goal.get("color"),
                 "priority": goal.get("priority", 999),
-                "target_amount": target_amount,
-                "target_date": target_date_str,
                 "target_amount": target_amount,
                 "target_date": target_date_str,
                 "current": current_saved,

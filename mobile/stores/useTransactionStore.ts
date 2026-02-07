@@ -24,8 +24,22 @@ interface TransactionState {
     merchant?: string;
     category: string;
     note?: string;
-    source?: 'manual' | 'voice' | 'sms';
+    source?: 'manual' | 'voice' | 'sms' | 'receipt';
+    spend_class?: 'need' | 'want' | 'luxury';
   }) => Promise<Transaction>;
+  updateTransaction: (
+    transactionId: string,
+    data: {
+      amount?: number;
+      currency?: string;
+      merchant?: string;
+      category?: string;
+      note?: string;
+      spend_class?: 'need' | 'want' | 'luxury';
+      transaction_at?: string;
+    }
+  ) => Promise<Transaction>;
+  deleteTransaction: (transactionId: string) => Promise<void>;
   parseVoice: (audioBase64: string) => Promise<{
     amount: number;
     merchant?: string;
@@ -123,6 +137,42 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
       set({
         error: error instanceof Error ? error.message : 'Failed to add transaction',
         isLoading: false
+      });
+      throw error;
+    }
+  },
+
+  updateTransaction: async (transactionId, data) => {
+    set({ isLoading: true, error: null });
+    try {
+      const updated = await api.updateTransaction(transactionId, data);
+      set((state) => ({
+        transactions: state.transactions.map((t) => (t.id === transactionId ? { ...t, ...updated } : t)),
+        isLoading: false,
+      }));
+      return updated;
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : 'Failed to update transaction',
+        isLoading: false,
+      });
+      throw error;
+    }
+  },
+
+  deleteTransaction: async (transactionId) => {
+    set({ isLoading: true, error: null });
+    try {
+      await api.deleteTransaction(transactionId);
+      set((state) => ({
+        transactions: state.transactions.filter((t) => t.id !== transactionId),
+        total: Math.max(0, state.total - 1),
+        isLoading: false,
+      }));
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : 'Failed to delete transaction',
+        isLoading: false,
       });
       throw error;
     }

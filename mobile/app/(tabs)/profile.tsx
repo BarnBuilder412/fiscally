@@ -3,12 +3,14 @@ import { useFocusEffect } from 'expo-router';
 import { api } from '@/services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Switch,
+    View,
+    Text,
+    StyleSheet,
+    ScrollView,
+    TouchableOpacity,
+    Switch,
+    Alert,
+    Platform,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -22,6 +24,8 @@ import {
   Shadows,
 } from '@/constants/theme';
 import { Card } from '@/components';
+import { isSmsTrackingEnabled, requestSmsPermissions, startSmsTracking, stopSmsTracking } from '@/services/smsTracking';
+import { enableLocationAwareBudgeting } from '@/services/locationBudgeting';
 
 interface SettingItemProps {
   icon: string;
@@ -66,12 +70,17 @@ function SettingItem({
 export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [smsTracking, setSmsTracking] = useState(true);
+  const [smsTracking, setSmsTracking] = useState(false);
+  const [locationBudgeting, setLocationBudgeting] = useState(false);
   const [notifications, setNotifications] = useState(true);
   const [user, setUser] = useState<{ name: string; email: string; initials: string } | null>(null);
+  const [currencyCode, setCurrencyCode] = useState('INR');
 
   const loadProfile = async () => {
     try {
+      const smsEnabled = await isSmsTrackingEnabled();
+      setSmsTracking(smsEnabled);
+
       const userData = await api.getMe();
       if (userData) {
         // Name priority: 1. Top level name, 2. Profile identity name, 3. Extract from email
@@ -102,9 +111,63 @@ export default function ProfileScreen() {
           email: userData.email || '',
           initials
         });
+
+        const profileCurrency = userData.profile?.identity?.currency || userData.profile?.currency;
+        if (profileCurrency) {
+          setCurrencyCode(String(profileCurrency).toUpperCase());
+        }
+        setLocationBudgeting(Boolean(userData.profile?.preferences?.location_budgeting_enabled));
       }
     } catch (error) {
       console.log('Failed to load profile:', error);
+    }
+  };
+
+  const handleSmsToggle = async (value: boolean) => {
+    if (Platform.OS !== 'android') {
+      Alert.alert('Android only', 'SMS auto-tracking is currently available only on Android.');
+      return;
+    }
+
+    if (value) {
+      const granted = await requestSmsPermissions();
+      if (!granted) {
+        Alert.alert('Permission required', 'SMS permission is required for auto-tracking.');
+        setSmsTracking(false);
+        return;
+      }
+      await startSmsTracking();
+      setSmsTracking(true);
+      return;
+    }
+
+    await stopSmsTracking();
+    setSmsTracking(false);
+  };
+
+  const handleLocationToggle = async (value: boolean) => {
+    if (!value) {
+      setLocationBudgeting(false);
+      await api.updateProfile({
+        profile: {
+          preferences: { location_budgeting_enabled: false },
+        },
+      } as any);
+      return;
+    }
+
+    try {
+      const result = await enableLocationAwareBudgeting();
+      if (!result.granted) {
+        Alert.alert('Permission required', 'Location permission is required for locality-aware budgeting.');
+        setLocationBudgeting(false);
+        return;
+      }
+      setLocationBudgeting(true);
+      if (result.currency) setCurrencyCode(result.currency);
+    } catch (error: any) {
+      Alert.alert('Location setup failed', error?.message || 'Unable to enable location-aware budgeting.');
+      setLocationBudgeting(false);
     }
   };
 
@@ -145,6 +208,7 @@ export default function ProfileScreen() {
             <Text style={styles.proBadgeText}>PRO PLAN MEMBER</Text>
           </View>
           <Text style={styles.profileEmail}>{user?.email || 'kaushal@fiscally.ai'}</Text>
+          <Text style={styles.currencyLabel}>Primary currency: {currencyCode}</Text>
         </View>
 
         {/* Financial Preferences Section */}
@@ -186,9 +250,25 @@ export default function ProfileScreen() {
             rightElement={
               <Switch
                 value={smsTracking}
-                onValueChange={setSmsTracking}
+                onValueChange={handleSmsToggle}
                 trackColor={{ false: Colors.gray200, true: Colors.primaryLight }}
                 thumbColor={smsTracking ? Colors.primary : Colors.white}
+                ios_backgroundColor={Colors.gray200}
+              />
+            }
+          />
+          <View style={styles.divider} />
+          <SettingItem
+            icon="location"
+            title="Location-aware budgeting"
+            subtitle="Adjust guidance by local cost of living"
+            showArrow={false}
+            rightElement={
+              <Switch
+                value={locationBudgeting}
+                onValueChange={handleLocationToggle}
+                trackColor={{ false: Colors.gray200, true: Colors.primaryLight }}
+                thumbColor={locationBudgeting ? Colors.primary : Colors.white}
                 ios_backgroundColor={Colors.gray200}
               />
             }
@@ -342,6 +422,12 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     color: Colors.gray400,
     marginTop: Spacing.sm,
+  },
+  currencyLabel: {
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+    marginTop: Spacing.xs,
+    fontWeight: FontWeight.medium,
   },
   sectionLabel: {
     fontSize: 10,

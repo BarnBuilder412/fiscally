@@ -3,13 +3,14 @@ Transaction schemas for request/response validation.
 """
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional, Literal
+from typing import Optional, Literal, Any
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 
 # Valid transaction sources
-TransactionSource = Literal["manual", "voice", "sms"]
+TransactionSource = Literal["manual", "voice", "sms", "receipt"]
+SpendClass = Literal["need", "want", "luxury"]
 
 # Valid categories (matches spec)
 VALID_CATEGORIES = [
@@ -24,6 +25,7 @@ VALID_CATEGORIES = [
     "subscriptions",
     "health",
     "education",
+    "transfer",
     "other",
 ]
 
@@ -37,6 +39,10 @@ class TransactionCreate(BaseModel):
     category: Optional[str] = Field(None, max_length=100, description="Expense category")
     note: Optional[str] = Field(None, description="Optional note about the transaction")
     source: TransactionSource = Field(..., description="How transaction was added: manual, voice, or sms")
+    spend_class: Optional[SpendClass] = Field(
+        None,
+        description="Optional manual classification into need/want/luxury",
+    )
     transaction_at: Optional[datetime] = Field(None, description="When transaction occurred (defaults to now)")
     
     @field_validator("amount")
@@ -81,6 +87,9 @@ class TransactionResponse(BaseModel):
     note: Optional[str] = None
     source: str
     ai_category_confidence: Optional[str] = None
+    spend_class: Optional[str] = None
+    spend_class_confidence: Optional[str] = None
+    spend_class_reason: Optional[str] = None
     is_anomaly: bool = False
     anomaly_reason: Optional[str] = None
     opik_trace_id: Optional[str] = None  # Opik trace ID for feedback logging
@@ -114,6 +123,32 @@ class TransactionListResponse(BaseModel):
     has_more: bool
 
 
+class TransactionUpdate(BaseModel):
+    """Request schema for partially updating a transaction."""
+
+    amount: Optional[Decimal] = Field(default=None, decimal_places=2)
+    currency: Optional[str] = Field(default=None, max_length=10)
+    merchant: Optional[str] = Field(default=None, max_length=255)
+    category: Optional[str] = Field(default=None, max_length=100)
+    note: Optional[str] = None
+    spend_class: Optional[SpendClass] = None
+    transaction_at: Optional[datetime] = None
+
+    @field_validator("amount")
+    @classmethod
+    def validate_amount(cls, v: Optional[Decimal]) -> Optional[Decimal]:
+        if v is not None and v <= 0:
+            raise ValueError("Amount must be positive")
+        return v
+
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in VALID_CATEGORIES:
+            raise ValueError(f"Invalid category. Must be one of: {', '.join(VALID_CATEGORIES)}")
+        return v
+
+
 class TransactionSummary(BaseModel):
     """Summary statistics for transactions."""
     
@@ -134,3 +169,18 @@ class VoiceTransactionResponse(BaseModel):
     needs_clarification: bool = False
     clarification_question: Optional[str] = None
     transcript: Optional[str] = None  # The actual spoken text from transcription
+
+
+class ReceiptTransactionResponse(BaseModel):
+    """Response schema for parsed receipt data and auto-created transaction."""
+
+    amount: float
+    currency: str
+    merchant: Optional[str] = None
+    category: str
+    spend_class: Optional[SpendClass] = None
+    confidence: float
+    needs_review: bool = False
+    reason: Optional[str] = None
+    transaction: Optional[TransactionResponse] = None
+    extracted_items: Optional[list[dict[str, Any]]] = None

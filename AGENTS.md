@@ -216,7 +216,11 @@ All endpoints follow `/api/v1/` convention:
 ### Transactions
 - `GET /api/v1/transactions?limit=50&offset=0&category=food` - List with filters
 - `POST /api/v1/transactions` - Create transaction (manual or SMS-parsed)
+- `PATCH /api/v1/transactions/{id}` - Update transaction fields
+- `DELETE /api/v1/transactions/{id}` - Delete transaction
 - `POST /api/v1/transactions/voice` - Parse voice audio (Whisper + LLM)
+- `POST /api/v1/transactions/receipt` - Parse receipt image/PDF and auto-create transaction
+- `POST /api/v1/transactions/{id}/category-correction` - Log user category correction feedback
 
 ### Goals
 - `GET /api/v1/goals/progress` - Get goal allocations, projections, and "on track" status
@@ -224,6 +228,7 @@ All endpoints follow `/api/v1/` convention:
 
 ### AI Features
 - `POST /api/v1/chat` - Conversational query (returns response + reasoning_steps)
+- `POST /api/v1/chat/feedback` - Capture thumbs up/down linked to Opik trace
 - `GET /api/v1/insights` - Fetch weekly summary, patterns, alerts
 
 ## Development Workflow
@@ -655,9 +660,27 @@ The UI follows the "Stitch" design system from HTML mockups in:
 - **Demo Data**: `backend/seed_demo_data.py` generates realistic 3-month history + patterns.
 
 #### Remaining Mobile Work
-- [ ] Implement SMS parsing (Android)
+- [x] Implement SMS parsing scaffolding + Android tracking integration
 - [ ] Push notifications setup (Firebase)
 - [ ] Polish transitions and animations
+
+#### Phase 4: Data Quality & Capture Expansion 🚧 IN PROGRESS (2026-02-08)
+**Status:** Core integration upgrades landed across backend and mobile.
+
+##### Backend Upgrades
+- Added transaction enrichment fields: `spend_class`, `spend_class_confidence`, `spend_class_reason`, `opik_trace_id`.
+- Added robust transaction PATCH body schema and fixed delete endpoint duplicate code bug.
+- Added receipt ingestion endpoint (`POST /api/v1/transactions/receipt`) for image/PDF auto-add.
+- Added dedicated insights route (`GET /api/v1/insights`) while keeping chat insights compatibility.
+- Added chat feedback endpoint + category-correction feedback wiring to Opik.
+- Added localization/PPP helper service and profile auto-defaulting for currency/locale from location.
+
+##### Mobile Upgrades
+- Added CRUD wiring (`updateTransaction`, `deleteTransaction`) and in-app edit transaction flow.
+- Added receipt capture flow (camera/gallery/PDF) and auto-add UX.
+- Added Android SMS tracking service with permissions, parsing, dedupe, and periodic sync.
+- Added location-aware budgeting toggle and profile currency visibility.
+- Added spend-class visualization in transaction item and Trends "Lifestyle Mix".
 
 #### Commands
 ```bash
@@ -674,4 +697,3 @@ pnpm typecheck        # Run TypeScript checks
 - Floating Chat button is positioned at `bottom: 70 + insets.bottom`
 - NativeWind is configured but most components still use StyleSheet (gradual migration)
 - The `@tailwind` lint warnings in `global.css` are false positives from IDE (NativeWind works)
-

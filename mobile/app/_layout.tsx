@@ -6,6 +6,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { Colors, Spacing } from '@/constants/theme';
 import { AnimatedSplash } from '@/components/AnimatedSplash';
+import { restoreSmsTracking } from '@/services/smsTracking';
 import '../global.css';
 
 import { LogBox } from 'react-native';
@@ -27,6 +28,7 @@ export default function RootLayout() {
       try {
         // Pre-load fonts, make any API calls you need to do here
         // await Font.loadAsync(Entypo.font);
+        await restoreSmsTracking();
       } catch (e) {
         console.warn(e);
       } finally {
@@ -85,6 +87,20 @@ export default function RootLayout() {
           name="voice-input"
           options={{
             presentation: 'fullScreenModal',
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen
+          name="receipt-input"
+          options={{
+            presentation: 'modal',
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen
+          name="edit-transaction"
+          options={{
+            presentation: 'modal',
             headerShown: false,
           }}
         />

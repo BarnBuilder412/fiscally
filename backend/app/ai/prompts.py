@@ -5,8 +5,40 @@ All LLM prompts for the Fiscally expense tracking app.
 """
 
 from typing import Dict, List, Any, Optional
-from datetime import datetime
 import json
+
+# Common currency symbol map used across prompts.
+CURRENCY_SYMBOLS = {
+    "INR": "₹",
+    "USD": "$",
+    "EUR": "€",
+    "GBP": "£",
+    "JPY": "¥",
+    "AUD": "A$",
+    "CAD": "C$",
+    "SGD": "S$",
+    "AED": "AED ",
+}
+
+
+def get_currency_symbol(currency_code: Optional[str]) -> str:
+    """Return symbol/prefix for a currency code."""
+    if not currency_code:
+        return "₹"
+    return CURRENCY_SYMBOLS.get(currency_code.upper(), f"{currency_code.upper()} ")
+
+
+def get_user_currency_code(user_context: Optional[Dict[str, Any]]) -> str:
+    """Resolve user currency from context with INR fallback."""
+    if not user_context:
+        return "INR"
+    profile = user_context.get("profile", {}) or {}
+    return (
+        profile.get("identity", {}).get("currency")
+        or profile.get("currency")
+        or "INR"
+    )
+
 
 # =============================================================================
 # CORE PERSONALITY (SOUL)
@@ -43,7 +75,7 @@ Only interrupt for: anomalies, goal milestones, urgent alerts.
 - Use specific numbers (more powerful than adjectives)
 - Light humor okay, never about financial stress
 - Never condescending or judgmental
-- Use Indian Rupee symbol (₹) always
+- Use the user's local currency and locale formatting
 
 ## Boundaries
 - Never give investment advice
@@ -56,6 +88,7 @@ Only interrupt for: anomalies, goal milestones, urgent alerts.
 # =============================================================================
 
 CATEGORIES = [
+    "food",
     "food_delivery",
     "restaurant", 
     "groceries",
@@ -183,6 +216,8 @@ def build_categorization_prompt(
         search_context: Optional web search results about unknown merchant
     """
     user_context = user_context or {}
+    currency_code = get_user_currency_code(user_context)
+    currency_symbol = get_currency_symbol(currency_code)
     
     # Build search context section if provided
     search_section = ""
@@ -197,7 +232,7 @@ Use this information to determine the merchant type.
     return f"""Categorize this transaction into exactly one category.
 
 ## Transaction
-- Amount: ₹{transaction.get('amount', 0)}
+- Amount: {currency_symbol}{transaction.get('amount', 0)} ({currency_code})
 - Merchant/Description: {transaction.get('merchant', 'Unknown')}
 - Time: {transaction.get('timestamp', 'Unknown')}
 {search_section}
@@ -207,7 +242,7 @@ Use this information to determine the merchant type.
 ## Rules
 1. If merchant is clearly identifiable (Swiggy, Amazon, etc.), use obvious category
 2. Consider time of day (late night food = likely delivery)
-3. Consider amount patterns (₹50-500 at unknown = likely food/transport)
+3. Consider amount patterns in the local market for this user
 4. If truly uncertain, set confidence low
 
 Respond ONLY with valid JSON:
@@ -226,7 +261,7 @@ Merchant name: "{merchant_name}"
 Transaction context: {transaction_context}
 
 Generate a simple search query to find what this business sells/does.
-Focus on India-specific results.
+Focus on location-relevant results when location cues exist.
 
 Respond with JSON: {{"search_query": "query string", "search_needed": true/false}}
 
@@ -240,20 +275,23 @@ If the merchant name is clearly a category (like "ATM", "Petrol", "Grocery"), se
 
 def build_anomaly_detection_prompt(
     transaction: Dict[str, Any],
-    user_stats: Dict[str, Any]
+    user_stats: Dict[str, Any],
+    user_context: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Detect if transaction is unusual for this user."""
+    currency_code = get_user_currency_code(user_context)
+    currency_symbol = get_currency_symbol(currency_code)
     return f"""Is this transaction unusual?
 
 ## Transaction
-- Amount: ₹{transaction.get('amount', 0)}
+- Amount: {currency_symbol}{transaction.get('amount', 0)} ({currency_code})
 - Category: {transaction.get('category', 'unknown')}
 - Merchant: {transaction.get('merchant', 'Unknown')}
 
 ## User's History
-- Average for {transaction.get('category', 'this category')}: ₹{user_stats.get('category_avg', 0)}
-- Max for this category: ₹{user_stats.get('category_max', 0)}
-- Budget for this category: ₹{user_stats.get('category_budget', 'Not set')}
+- Average for {transaction.get('category', 'this category')}: {currency_symbol}{user_stats.get('category_avg', 0)}
+- Max for this category: {currency_symbol}{user_stats.get('category_max', 0)}
+- Budget for this category: {currency_symbol}{user_stats.get('category_budget', 'Not set')}
 
 ## Check For
 1. Amount > 2x average
@@ -279,10 +317,12 @@ def build_voice_parsing_prompt(
 ) -> str:
     """Parse voice transcript into structured transaction."""
     user_context = user_context or {}
+    currency_code = get_user_currency_code(user_context)
     
     return f"""Parse this voice note into a transaction.
 
 Voice: "{transcript}"
+Primary currency: {currency_code}
 
 ## Rules
 1. Extract amount (handle "2.5k" = 2500, "1.5 lakh" = 150000)
@@ -318,6 +358,8 @@ def build_chat_system_prompt(user_context: Dict[str, Any]) -> str:
     patterns = user_context.get("patterns", {})
     goals = user_context.get("goals", [])
     memory = user_context.get("memory", {})
+    currency_code = get_user_currency_code(user_context)
+    currency_symbol = get_currency_symbol(currency_code)
     
     # Format goals with target details for better AI recommendations
     goals_section = "No goals set"
@@ -329,11 +371,11 @@ def build_chat_system_prompt(user_context: Dict[str, Any]) -> str:
             target_date = g.get("target_date", "No deadline")
             monthly_needed = g.get("monthly_savings_needed", "")
             
-            line = f"- {goal_id}: Target ₹{target_amount}"
+            line = f"- {goal_id}: Target {currency_symbol}{target_amount}"
             if target_date and target_date != "No deadline":
                 line += f" by {target_date}"
             if monthly_needed:
-                line += f" (₹{monthly_needed}/month needed)"
+                line += f" ({currency_symbol}{monthly_needed}/month needed)"
             goal_lines.append(line)
         goals_section = "\n".join(goal_lines)
     
@@ -353,7 +395,7 @@ MEMORY: {json.dumps(memory, indent=2) if memory else "No memories"}
 ## Response Rules
 1. Use specific numbers from their data
 2. Keep responses under 100 words
-3. Always use ₹ for currency
+3. Always use {currency_symbol} for currency formatting unless user explicitly asks for another
 4. Be helpful, not preachy
 5. Use Markdown formatting (bold, bullet points) for readability
 6. Do NOT use JSON or YAML formatting in the response text
@@ -372,6 +414,8 @@ def build_weekly_insights_prompt(
     last_week_total: float = 0
 ) -> str:
     """Generate weekly spending insights."""
+    currency_code = get_user_currency_code(user_context)
+    currency_symbol = get_currency_symbol(currency_code)
     this_week_total = sum(t.get('amount', 0) for t in transactions)
     
     # Category breakdown
@@ -385,9 +429,9 @@ def build_weekly_insights_prompt(
     return f"""Generate a weekly spending summary.
 
 ## Data
-- Total: ₹{this_week_total:,}
-- Last week: ₹{last_week_total:,}
-- Top categories: {', '.join(f'{cat}: ₹{amt:,}' for cat, amt in top_categories)}
+- Total: {currency_symbol}{this_week_total:,}
+- Last week: {currency_symbol}{last_week_total:,}
+- Top categories: {', '.join(f'{cat}: {currency_symbol}{amt:,}' for cat, amt in top_categories)}
 - Transactions: {len(transactions)}
 
 ## Rules
@@ -402,6 +446,127 @@ Respond ONLY with valid JSON:
     "headline": "short catchy line",
     "summary": "2-3 sentences",
     "tip": "one specific suggestion"
+}}
+"""
+
+
+# =============================================================================
+# NEED/WANT/LUXURY CLASSIFICATION
+# =============================================================================
+
+def build_spending_classification_prompt(
+    transaction: Dict[str, Any],
+    user_context: Optional[Dict[str, Any]] = None,
+) -> str:
+    """
+    Classify a transaction as need/want/luxury using user context.
+    The classification is relative to the user's profile and goals.
+    """
+    user_context = user_context or {}
+    profile = user_context.get("profile", {}) or {}
+    goals = user_context.get("goals", []) or []
+    patterns = user_context.get("patterns", {}) or {}
+    currency_code = get_user_currency_code(user_context)
+    currency_symbol = get_currency_symbol(currency_code)
+
+    return f"""Classify this expense as exactly one: need, want, or luxury.
+
+## Transaction
+- Amount: {currency_symbol}{transaction.get('amount', 0)} ({currency_code})
+- Merchant: {transaction.get('merchant', 'Unknown')}
+- Category: {transaction.get('category', 'other')}
+- Time: {transaction.get('timestamp', 'Unknown')}
+
+## User Context
+- Profile: {json.dumps(profile, ensure_ascii=True)}
+- Goals: {json.dumps(goals, ensure_ascii=True)}
+- Patterns: {json.dumps(patterns, ensure_ascii=True)}
+
+## Classification Rules
+- Need: essential living, health, work-critical, unavoidable obligations
+- Want: improves comfort/convenience, discretionary but reasonable
+- Luxury: highly discretionary/premium/indulgent spending
+- Base this on this specific user's financial personality, obligations, and goals
+- Expensive does not automatically mean luxury
+
+Respond ONLY with valid JSON:
+{{
+  "spend_class": "need|want|luxury",
+  "confidence": 0.0-1.0,
+  "reason": "short specific reason"
+}}
+"""
+
+
+# =============================================================================
+# RECEIPT PARSING
+# =============================================================================
+
+def build_receipt_text_parsing_prompt(
+    receipt_text: str,
+    user_context: Optional[Dict[str, Any]] = None,
+) -> str:
+    """Parse extracted receipt/invoice text into a transaction."""
+    user_context = user_context or {}
+    currency_code = get_user_currency_code(user_context)
+
+    return f"""Parse this receipt/invoice text into one transaction.
+
+Primary user currency: {currency_code}
+
+Receipt text:
+{receipt_text[:12000]}
+
+Rules:
+1. Detect final payable amount (total/grand total/net payable)
+2. Detect merchant/vendor name
+3. Infer transaction category
+4. Infer transaction date if present
+5. Return confidence and whether manual review is needed
+
+Respond ONLY with valid JSON:
+{{
+  "amount": number,
+  "currency": "ISO currency code",
+  "merchant": "string",
+  "category": "string",
+  "transaction_at": "ISO datetime or null",
+  "confidence": 0.0-1.0,
+  "needs_review": true/false,
+  "reason": "short reason",
+  "line_items": [{{"name": "string", "amount": number}}]
+}}
+"""
+
+
+def build_receipt_image_parsing_prompt(user_context: Optional[Dict[str, Any]] = None) -> str:
+    """Instructions for parsing receipt image content via multimodal model."""
+    user_context = user_context or {}
+    currency_code = get_user_currency_code(user_context)
+
+    return f"""You are parsing an image of a receipt or invoice.
+Extract a single transaction object from it.
+
+Primary user currency: {currency_code}
+
+Rules:
+1. Find final payable amount (not subtotal/tax unless only total available)
+2. Find merchant name
+3. Infer category from merchant/items
+4. Extract transaction date if visible
+5. Keep output strict JSON and no extra text
+
+JSON schema:
+{{
+  "amount": number,
+  "currency": "ISO currency code",
+  "merchant": "string",
+  "category": "string",
+  "transaction_at": "ISO datetime or null",
+  "confidence": 0.0-1.0,
+  "needs_review": true/false,
+  "reason": "short reason",
+  "line_items": [{{"name": "string", "amount": number}}]
 }}
 """
 

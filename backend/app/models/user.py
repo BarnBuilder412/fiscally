@@ -109,13 +109,17 @@ class Transaction(Base):
     note = Column(Text, nullable=True)
     
     # Source tracking
-    source = Column(String(50), nullable=False)  # 'manual', 'voice', 'sms'
+    source = Column(String(50), nullable=False)  # 'manual', 'voice', 'sms', 'receipt'
     raw_sms = Column(Text, nullable=True)  # Original SMS text (if source='sms')
     
     # AI processing metadata
     ai_category_confidence = Column(String(10), nullable=True)  # 0.0-1.0
+    spend_class = Column(String(20), nullable=True, index=True)  # need | want | luxury
+    spend_class_confidence = Column(String(10), nullable=True)  # 0.0-1.0
+    spend_class_reason = Column(String(255), nullable=True)
     is_anomaly = Column(Boolean, default=False, nullable=False)
     anomaly_reason = Column(String(255), nullable=True)
+    opik_trace_id = Column(String(100), nullable=True, index=True)
     
     # Timestamps
     transaction_at = Column(DateTime, nullable=False)  # When the transaction occurred

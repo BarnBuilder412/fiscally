@@ -10,7 +10,7 @@ import {
     ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Redirect, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { Redirect, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -25,8 +25,10 @@ import { Card, TransactionItem } from '@/components';
 import { api } from '@/services/api';
 import { Transaction } from '@/types';
 import { eventBus, Events } from '@/services/eventBus';
+import { formatCurrency as formatMoney } from '@/utils/currency';
 
 export default function ActivityScreen() {
+    const router = useRouter();
     const insets = useSafeAreaInsets();
     const [refreshing, setRefreshing] = useState(false);
     const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -82,10 +84,14 @@ export default function ActivityScreen() {
         const unsubUpdated = eventBus.on(Events.TRANSACTION_UPDATED, () => {
             loadData();
         });
+        const unsubDeleted = eventBus.on(Events.TRANSACTION_DELETED, () => {
+            loadData();
+        });
 
         return () => {
             unsubAdded();
             unsubUpdated();
+            unsubDeleted();
         };
     }, []);
 
@@ -102,6 +108,8 @@ export default function ActivityScreen() {
         setRefreshing(false);
     };
 
+    const getTransactionDate = (t: Transaction) => new Date(t.transaction_at || t.created_at);
+
     // Filter transactions
     const getFilteredTransactions = () => {
         let filtered = transactions;
@@ -110,7 +118,7 @@ export default function ActivityScreen() {
         if (selectedFilter !== 'all') {
             const now = new Date();
             filtered = transactions.filter(t => {
-                const txDate = new Date(t.created_at);
+                const txDate = getTransactionDate(t);
                 if (selectedFilter === 'today') {
                     return txDate.toDateString() === now.toDateString();
                 } else if (selectedFilter === 'week') {
@@ -143,26 +151,20 @@ export default function ActivityScreen() {
     // Calculate summary stats
     const todayTransactions = transactions.filter(t => {
         const today = new Date().toDateString();
-        return new Date(t.created_at).toDateString() === today;
+        return getTransactionDate(t).toDateString() === today;
     });
 
     const weekTransactions = transactions.filter(t => {
         const weekAgo = new Date();
         weekAgo.setDate(weekAgo.getDate() - 7);
-        return new Date(t.created_at) >= weekAgo;
+        return getTransactionDate(t) >= weekAgo;
     });
 
     const todayTotal = todayTransactions.reduce((sum, t) => sum + t.amount, 0);
     const weekTotal = weekTransactions.reduce((sum, t) => sum + t.amount, 0);
 
-    const formatCurrency = (amount: number) => {
-        return new Intl.NumberFormat('en-IN', {
-            style: 'currency',
-            currency: 'INR',
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 0,
-        }).format(amount);
-    };
+    const primaryCurrency = transactions[0]?.currency || 'INR';
+    const formatCurrency = (amount: number) => formatMoney(amount, primaryCurrency);
 
     // Generate contextual agentic tips based on transaction patterns
     useEffect(() => {
@@ -226,7 +228,7 @@ export default function ActivityScreen() {
 
     // Group transactions by date
     const groupedTransactions = filteredTransactions.reduce((groups, transaction) => {
-        const date = new Date(transaction.created_at);
+        const date = getTransactionDate(transaction);
         const today = new Date();
         const yesterday = new Date(today);
         yesterday.setDate(yesterday.getDate() - 1);
@@ -415,7 +417,10 @@ export default function ActivityScreen() {
                             <Card padding="none" style={styles.transactionsCard}>
                                 {txns.map((transaction, index) => (
                                     <View key={transaction.id}>
-                                        <TransactionItem transaction={transaction} />
+                                        <TransactionItem
+                                            transaction={transaction}
+                                            onPress={() => router.push({ pathname: '/edit-transaction' as any, params: { id: transaction.id } } as any)}
+                                        />
                                         {index < txns.length - 1 && <View style={styles.divider} />}
                                     </View>
                                 ))}

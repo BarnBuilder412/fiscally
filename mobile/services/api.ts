@@ -148,16 +148,56 @@ class ApiClient {
     };
   }
 
+  async getTransactionById(transactionId: string): Promise<Transaction> {
+    const transaction = await this.request<any>(`/api/v1/transactions/${transactionId}`);
+    return {
+      ...transaction,
+      amount: parseFloat(transaction.amount),
+    };
+  }
+
   async createTransaction(data: {
     amount: number;
     merchant?: string;
     category: string;
     note?: string;
-    source?: 'manual' | 'voice' | 'sms';
+    source?: 'manual' | 'voice' | 'sms' | 'receipt';
+    spend_class?: 'need' | 'want' | 'luxury';
   }): Promise<Transaction> {
     return this.request<Transaction>('/api/v1/transactions', {
       method: 'POST',
       body: JSON.stringify(data),
+    });
+  }
+
+  async updateTransaction(
+    transactionId: string,
+    data: {
+      amount?: number;
+      currency?: string;
+      merchant?: string;
+      category?: string;
+      note?: string;
+      spend_class?: 'need' | 'want' | 'luxury';
+      transaction_at?: string;
+    }
+  ): Promise<Transaction> {
+    return this.request<Transaction>(`/api/v1/transactions/${transactionId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteTransaction(transactionId: string): Promise<void> {
+    await this.request(`/api/v1/transactions/${transactionId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async submitCategoryCorrection(transactionId: string, newCategory: string): Promise<Transaction> {
+    return this.request<Transaction>(`/api/v1/transactions/${transactionId}/category-correction`, {
+      method: 'POST',
+      body: JSON.stringify({ new_category: newCategory }),
     });
   }
 
@@ -203,11 +243,50 @@ class ApiClient {
     return response.json();
   }
 
+  async parseReceiptTransaction(file: {
+    uri: string;
+    name: string;
+    type: string;
+  }): Promise<{
+    amount: number;
+    currency: string;
+    merchant?: string;
+    category: string;
+    spend_class?: 'need' | 'want' | 'luxury';
+    confidence: number;
+    needs_review: boolean;
+    reason?: string;
+    transaction?: Transaction;
+  }> {
+    const formData = new FormData();
+    // @ts-ignore - React Native FormData file type
+    formData.append('file', file);
+
+    const token = await this.getAccessToken();
+    const response = await fetch(`${this.baseUrl}/api/v1/transactions/receipt`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'multipart/form-data',
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || 'Receipt parsing failed');
+    }
+
+    return response.json();
+  }
+
   // Chat
   async sendChatMessage(message: string): Promise<{
     response: string;
     memory_updated?: boolean;
     new_fact?: string;
+    trace_id?: string;
     reasoning_steps?: Array<{
       step_type: string;
       content: string;
@@ -220,6 +299,16 @@ class ApiClient {
     });
   }
 
+  async sendChatFeedback(traceId: string, rating: 1 | 2): Promise<{ success: boolean }> {
+    return this.request('/api/v1/chat/feedback', {
+      method: 'POST',
+      body: JSON.stringify({
+        trace_id: traceId,
+        rating,
+      }),
+    });
+  }
+
   // Insights
   async getInsights(): Promise<{
     headline?: string;
@@ -229,10 +318,7 @@ class ApiClient {
     total_spent?: number;
     transaction_count?: number;
   }> {
-    return this.request('/api/v1/chat/insights', {
-      method: 'POST',
-      body: JSON.stringify({}),
-    });
+    return this.request('/api/v1/insights');
   }
 
   // Goals

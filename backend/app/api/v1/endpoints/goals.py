@@ -4,17 +4,17 @@ Goals API Endpoints
 Sync goals from mobile and provide AI-calculated budget analysis.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 
 from app.api.deps import CurrentUser, get_db
 from app.ai.context_manager import ContextManager
+from app.ai.prompts import get_currency_symbol
 from sqlalchemy.orm import Session
 
 router = APIRouter()
-context_manager = ContextManager()
 
 
 class GoalDetail(BaseModel):
@@ -75,14 +75,16 @@ async def sync_goals(
 
 @router.get("/budget-analysis")
 async def get_budget_analysis(
-    current_user: CurrentUser
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
 ):
     """
     Get AI-calculated budget analysis based on goals.
     Returns monthly savings needed and budget recommendations.
     """
     user_id = str(current_user.id)
-    goals = await context_manager.load_goals(user_id)
+    ctx = ContextManager(db)
+    goals = await ctx.load_goals(user_id)
     
     if not goals:
         return {
@@ -96,8 +98,15 @@ async def get_budget_analysis(
     )
     
     # Get user's patterns for context
-    patterns = await context_manager.load_patterns(user_id)
+    patterns = await ctx.load_patterns(user_id)
     avg_monthly_spending = patterns.get("avg_monthly_total", 0) if patterns else 0
+    profile = await ctx.load_profile(user_id)
+    currency_code = (
+        profile.get("identity", {}).get("currency")
+        or profile.get("currency")
+        or "INR"
+    )
+    symbol = get_currency_symbol(currency_code)
     
     # Build recommendations
     recommendations = []
@@ -121,7 +130,7 @@ async def get_budget_analysis(
         "total_monthly_savings_needed": total_monthly_savings,
         "avg_monthly_spending": avg_monthly_spending,
         "goals": recommendations,
-        "tip": f"To reach your goals, aim to save ₹{total_monthly_savings:,} per month."
+        "tip": f"To reach your goals, aim to save {symbol}{total_monthly_savings:,} per month."
     }
 
 
@@ -148,7 +157,6 @@ async def get_goal_progress(
         - goals: list of goals with progress details
     """
     from app.ai.context_manager import ContextManager
-    from sqlalchemy.orm import Session
     
     user_id = str(current_user.id)
     ctx = ContextManager(db)
@@ -197,5 +205,12 @@ async def save_to_goal(
     ctx = ContextManager(db)
     
     await ctx.update_goal_saved_amount(user_id, goal_id, amount)
+    profile = await ctx.load_profile(user_id)
+    currency_code = (
+        profile.get("identity", {}).get("currency")
+        or profile.get("currency")
+        or "INR"
+    )
+    symbol = get_currency_symbol(currency_code)
     
-    return {"message": f"Added ₹{amount:,.0f} to goal", "goal_id": goal_id}
+    return {"message": f"Added {symbol}{amount:,.0f} to goal", "goal_id": goal_id}

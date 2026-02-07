@@ -7,6 +7,7 @@ Instrumented with Opik for observability.
 
 import os
 import json
+import base64
 import httpx
 from typing import Optional, Dict, Any, List
 from openai import AsyncOpenAI
@@ -15,12 +16,14 @@ import opik
 from .prompts import (
     lookup_merchant,
     build_categorization_prompt,
-    build_search_query_prompt,
     build_anomaly_detection_prompt,
     build_voice_parsing_prompt,
     build_chat_system_prompt,
     build_weekly_insights_prompt,
     build_memory_extraction_prompt,
+    build_spending_classification_prompt,
+    build_receipt_text_parsing_prompt,
+    build_receipt_image_parsing_prompt,
     CATEGORIES,
 )
 
@@ -96,7 +99,7 @@ class LLMClient:
                     "https://google.serper.dev/search",
                     headers={"X-API-KEY": self.search_api_key},
                     json={
-                        "q": f"{merchant_name} India what type of store business",
+                        "q": f"{merchant_name} what type of business or store",
                         "num": 3
                     },
                     timeout=5.0
@@ -231,7 +234,8 @@ class LLMClient:
     async def detect_anomaly(
         self,
         transaction: Dict[str, Any],
-        user_stats: Dict[str, Any]
+        user_stats: Dict[str, Any],
+        user_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Detect if transaction is unusual for this user."""
         from opik import opik_context
@@ -245,7 +249,7 @@ class LLMClient:
             "model": self.model
         })
         
-        prompt = build_anomaly_detection_prompt(transaction, user_stats)
+        prompt = build_anomaly_detection_prompt(transaction, user_stats, user_context=user_context)
         response = await self._complete(prompt, temperature=0.3)
         
         try:
@@ -264,6 +268,187 @@ class LLMClient:
             "severity": output.get("severity")
         })
         return output
+
+    # =========================================================================
+    # NEED/WANT/LUXURY CLASSIFICATION
+    # =========================================================================
+
+    @opik.track(name="classify_spending_class", tags=["classification", "needs-wants-luxury"])
+    async def classify_spending_class(
+        self,
+        transaction: Dict[str, Any],
+        user_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Classify transaction into need/want/luxury with confidence."""
+        from opik import opik_context
+
+        opik_context.update_current_span(metadata={
+            "amount": transaction.get("amount"),
+            "merchant": transaction.get("merchant"),
+            "category": transaction.get("category"),
+            "model": self.model,
+        })
+
+        prompt = build_spending_classification_prompt(transaction, user_context)
+        response = await self._complete(prompt, temperature=0.2)
+
+        try:
+            parsed = json.loads(response)
+        except json.JSONDecodeError:
+            parsed = {}
+
+        spend_class = str(parsed.get("spend_class", "")).lower()
+        if spend_class not in {"need", "want", "luxury"}:
+            spend_class = "want"
+
+        confidence = parsed.get("confidence", 0.5)
+        try:
+            confidence = float(confidence)
+        except (TypeError, ValueError):
+            confidence = 0.5
+        confidence = max(0.0, min(1.0, confidence))
+
+        reason = parsed.get("reason", "Classified based on merchant/category context.")
+        if not isinstance(reason, str):
+            reason = "Classified based on merchant/category context."
+
+        result = {
+            "spend_class": spend_class,
+            "confidence": confidence,
+            "reason": reason[:240],
+        }
+
+        opik_context.update_current_span(metadata={
+            "spend_class": result["spend_class"],
+            "confidence": result["confidence"],
+        })
+
+        return result
+
+    # =========================================================================
+    # RECEIPT PARSING
+    # =========================================================================
+
+    @opik.track(name="parse_receipt_text", tags=["receipt", "ocr", "parsing"])
+    async def parse_receipt_text(
+        self,
+        receipt_text: str,
+        user_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Parse text extracted from a receipt/invoice into structured fields."""
+        from opik import opik_context
+
+        opik_context.update_current_span(metadata={
+            "text_length": len(receipt_text or ""),
+            "model": self.model,
+        })
+
+        prompt = build_receipt_text_parsing_prompt(receipt_text, user_context)
+        response = await self._complete(prompt, temperature=0.1)
+
+        try:
+            parsed = json.loads(response)
+        except json.JSONDecodeError:
+            parsed = {}
+
+        return self._normalize_receipt_parse(parsed)
+
+    @opik.track(name="parse_receipt_image", tags=["receipt", "vision", "parsing"])
+    async def parse_receipt_image(
+        self,
+        image_bytes: bytes,
+        mime_type: str,
+        user_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Parse receipt image directly using multimodal model."""
+        from opik import opik_context
+
+        opik_context.update_current_span(metadata={
+            "image_size_bytes": len(image_bytes),
+            "mime_type": mime_type,
+            "model": self.model,
+        })
+
+        prompt = build_receipt_image_parsing_prompt(user_context)
+        encoded = base64.b64encode(image_bytes).decode("ascii")
+        data_url = f"data:{mime_type};base64,{encoded}"
+
+        response = await self.client.chat.completions.create(
+            model=self.model,
+            response_format={"type": "json_object"},
+            temperature=0.1,
+            messages=[
+                {"role": "system", "content": "Extract receipt data to strict JSON."},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": data_url}},
+                    ],
+                },
+            ],
+        )
+
+        content = response.choices[0].message.content or "{}"
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError:
+            parsed = {}
+
+        return self._normalize_receipt_parse(parsed)
+
+    def _normalize_receipt_parse(self, parsed: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize receipt parser output into predictable structure."""
+        amount = parsed.get("amount", 0)
+        try:
+            amount = float(amount)
+        except (TypeError, ValueError):
+            amount = 0.0
+
+        confidence = parsed.get("confidence", 0.0)
+        try:
+            confidence = float(confidence)
+        except (TypeError, ValueError):
+            confidence = 0.0
+        confidence = max(0.0, min(1.0, confidence))
+
+        category = str(parsed.get("category", "other") or "other")
+        if category not in CATEGORIES:
+            category = "other"
+
+        currency = str(parsed.get("currency", "INR") or "INR").upper()
+        merchant = parsed.get("merchant")
+        if merchant is not None:
+            merchant = str(merchant)[:255]
+
+        transaction_at = parsed.get("transaction_at")
+        if transaction_at and not isinstance(transaction_at, str):
+            transaction_at = None
+
+        line_items = parsed.get("line_items")
+        if not isinstance(line_items, list):
+            line_items = []
+
+        needs_review = parsed.get("needs_review")
+        if isinstance(needs_review, str):
+            needs_review = needs_review.lower() in {"true", "1", "yes"}
+        needs_review = bool(needs_review) or confidence < 0.65
+
+        reason = parsed.get("reason")
+        if reason is not None:
+            reason = str(reason)[:255]
+
+        return {
+            "amount": amount,
+            "currency": currency,
+            "merchant": merchant,
+            "category": category,
+            "transaction_at": transaction_at,
+            "confidence": confidence,
+            "needs_review": needs_review,
+            "reason": reason,
+            "line_items": line_items,
+        }
 
     # =========================================================================
     # VOICE PARSING

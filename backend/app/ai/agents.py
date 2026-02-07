@@ -6,13 +6,13 @@ Instrumented with Opik for observability.
 """
 
 from typing import Dict, List, Any, Optional
-from datetime import datetime
 from dataclasses import dataclass
 import uuid
 import opik
 
 from .llm_client import llm_client
 from .context_manager import ContextManager, UserInsight
+from .prompts import get_currency_symbol
 
 
 @dataclass
@@ -23,11 +23,15 @@ class ProcessedTransaction:
     merchant: Optional[str]
     category: str
     category_confidence: float
+    spend_class: Optional[str]
+    spend_class_confidence: Optional[float]
+    spend_class_reason: Optional[str]
     is_anomaly: bool
     anomaly_severity: Optional[str]
     anomaly_reason: Optional[str]
     notification_needed: bool
     notification_type: Optional[str]  # "new_transaction", "anomaly", "budget_warning"
+    opik_trace_id: Optional[str] = None
 
 
 @dataclass
@@ -36,6 +40,7 @@ class ChatResponse:
     response: str
     memory_updated: bool
     new_fact: Optional[str]
+    trace_id: Optional[str] = None
     reasoning_steps: Optional[List[Dict[str, Any]]] = None  # Chain-of-thought steps
 
 
@@ -80,23 +85,38 @@ class TransactionAgent:
         # Load user context for categorization
         user_context = await self.context.load_full_context(user_id)
         
-        # Step 1: Categorize (includes search fallback for unknown merchants)
-        categorization = await self.llm.categorize_transaction(
-            transaction, 
-            user_context
-        )
-        
-        category = categorization["category"]
-        confidence = categorization["confidence"]
+        # Step 1: Categorize (only if user did not provide category)
+        if transaction.get("category"):
+            category = str(transaction["category"])
+            confidence = 1.0
+        else:
+            categorization = await self.llm.categorize_transaction(
+                transaction,
+                user_context
+            )
+            category = categorization["category"]
+            confidence = categorization["confidence"]
         
         # Add category to transaction for anomaly detection
         transaction["category"] = category
         
         # Step 2: Detect anomalies
         user_stats = await self.context.load_user_stats(user_id, category)
-        anomaly = await self.llm.detect_anomaly(transaction, user_stats)
+        anomaly = await self.llm.detect_anomaly(transaction, user_stats, user_context=user_context)
+
+        # Step 3: Classify spending style (need/want/luxury)
+        spend_class = None
+        spend_class_confidence = None
+        spend_class_reason = None
+        try:
+            spend_classification = await self.llm.classify_spending_class(transaction, user_context)
+            spend_class = spend_classification.get("spend_class")
+            spend_class_confidence = spend_classification.get("confidence")
+            spend_class_reason = spend_classification.get("reason")
+        except Exception as exc:
+            print(f"Spending class classification failed: {exc}")
         
-        # Step 3: Check budget impact
+        # Step 4: Check budget impact
         budget_warning = await self._check_budget_impact(
             user_id, 
             category, 
@@ -104,12 +124,15 @@ class TransactionAgent:
             user_context
         )
         
-        # Step 4: Determine if notification needed
+        # Step 5: Determine if notification needed
         notification_needed, notification_type = self._should_notify(
             anomaly, 
             budget_warning, 
             confidence
         )
+
+        from .feedback import get_current_trace_id
+        trace_id = get_current_trace_id()
         
         result = ProcessedTransaction(
             transaction_id=transaction.get("id", str(uuid.uuid4())),
@@ -117,11 +140,15 @@ class TransactionAgent:
             merchant=transaction.get("merchant"),
             category=category,
             category_confidence=confidence,
+            spend_class=spend_class,
+            spend_class_confidence=spend_class_confidence,
+            spend_class_reason=spend_class_reason,
             is_anomaly=anomaly["is_anomaly"],
             anomaly_severity=anomaly.get("severity"),
             anomaly_reason=anomaly.get("reason"),
             notification_needed=notification_needed,
-            notification_type=notification_type
+            notification_type=notification_type,
+            opik_trace_id=trace_id,
         )
         
         # Log final output metadata
@@ -129,8 +156,11 @@ class TransactionAgent:
             "pipeline_step": "complete",
             "final_category": category,
             "category_confidence": confidence,
+            "spend_class": spend_class,
+            "spend_class_confidence": spend_class_confidence,
             "is_anomaly": anomaly["is_anomaly"],
-            "notification_type": notification_type
+            "notification_type": notification_type,
+            "trace_id": trace_id,
         })
         
         return result
@@ -268,7 +298,17 @@ class ChatAgent:
             "step_type": "querying",
             "content": "Searching your transactions for relevant data"
         })
-        transaction_data, query_info = await self._get_relevant_data_with_info(user_id, message)
+        currency_code = (
+            profile.get("identity", {}).get("currency")
+            or profile.get("currency")
+            or "INR"
+        )
+
+        transaction_data, query_info = await self._get_relevant_data_with_info(
+            user_id,
+            message,
+            currency_code=currency_code,
+        )
         
         if query_info:
             reasoning_steps.append({
@@ -310,10 +350,14 @@ class ChatAgent:
             "content": "Generated response with specific numbers and actionable advice"
         })
         
+        from .feedback import get_current_trace_id
+        trace_id = get_current_trace_id()
+
         result = ChatResponse(
             response=response,
             memory_updated=memory_updated,
             new_fact=new_fact,
+            trace_id=trace_id,
             reasoning_steps=reasoning_steps
         )
         
@@ -322,15 +366,17 @@ class ChatAgent:
             "response_length": len(response) if response else 0,
             "memory_updated": memory_updated,
             "has_new_fact": new_fact is not None,
-            "reasoning_step_count": len(reasoning_steps)
+            "reasoning_step_count": len(reasoning_steps),
+            "trace_id": trace_id,
         })
         
         return result
     
     async def _get_relevant_data_with_info(
-        self, 
-        user_id: str, 
-        message: str
+        self,
+        user_id: str,
+        message: str,
+        currency_code: str = "INR",
     ) -> tuple[Optional[str], Optional[str]]:
         """
         Query DB for data relevant to user's question.
@@ -338,20 +384,22 @@ class ChatAgent:
         """
         message_lower = message.lower()
         
+        symbol = get_currency_symbol(currency_code)
+
         # Detect what data to fetch based on keywords
         if any(word in message_lower for word in ["spent", "spend", "spending", "how much"]):
             summary = await self.context.get_spending_summary(user_id, "month")
             total = sum(summary.get("by_category", {}).values()) if summary else 0
             txn_count = summary.get("transaction_count", 0) if summary else 0
             return (
-                self.context.format_summary_for_llm(summary),
-                f"Analyzed {txn_count} transactions totaling ₹{total:,.0f}"
+                self.context.format_summary_for_llm(summary, currency_code=currency_code),
+                f"Analyzed {txn_count} transactions totaling {symbol}{total:,.0f}"
             )
         
         if any(word in message_lower for word in ["transaction", "recent", "last", "history"]):
             transactions = await self.context.get_transactions(user_id, days=30)
             return (
-                self.context.format_transactions_for_llm(transactions),
+                self.context.format_transactions_for_llm(transactions, currency_code=currency_code),
                 f"Retrieved {len(transactions)} recent transactions"
             )
         
@@ -366,8 +414,8 @@ class ChatAgent:
                 )
                 total = sum(t.get("amount", 0) for t in transactions)
                 return (
-                    self.context.format_transactions_for_llm(transactions),
-                    f"Found {len(transactions)} {cat} transactions (₹{total:,.0f} total)"
+                    self.context.format_transactions_for_llm(transactions, currency_code=currency_code),
+                    f"Found {len(transactions)} {cat} transactions ({symbol}{total:,.0f} total)"
                 )
         
         # Check for merchant mentions
@@ -381,22 +429,23 @@ class ChatAgent:
                 )
                 total = sum(t.get("amount", 0) for t in transactions)
                 return (
-                    self.context.format_transactions_for_llm(transactions),
-                    f"Found {len(transactions)} {merchant.title()} orders (₹{total:,.0f})"
+                    self.context.format_transactions_for_llm(transactions, currency_code=currency_code),
+                    f"Found {len(transactions)} {merchant.title()} orders ({symbol}{total:,.0f})"
                 )
         
         # Default: get recent summary
         summary = await self.context.get_spending_summary(user_id, "month")
         txn_count = summary.get("transaction_count", 0) if summary else 0
         return (
-            self.context.format_summary_for_llm(summary),
+            self.context.format_summary_for_llm(summary, currency_code=currency_code),
             f"Loaded your monthly spending summary ({txn_count} transactions)"
         )
     
     async def _get_relevant_data(
-        self, 
-        user_id: str, 
-        message: str
+        self,
+        user_id: str,
+        message: str,
+        currency_code: str = "INR",
     ) -> Optional[str]:
         """
         Query DB for data relevant to user's question.
@@ -408,23 +457,23 @@ class ChatAgent:
         if any(word in message_lower for word in ["spent", "spend", "spending", "how much"]):
             # Get spending summary
             summary = await self.context.get_spending_summary(user_id, "month")
-            return self.context.format_summary_for_llm(summary)
+            return self.context.format_summary_for_llm(summary, currency_code=currency_code)
         
         if any(word in message_lower for word in ["transaction", "recent", "last", "history"]):
             # Get recent transactions
             transactions = await self.context.get_transactions(user_id, days=30)
-            return self.context.format_transactions_for_llm(transactions)
+            return self.context.format_transactions_for_llm(transactions, currency_code=currency_code)
         
         # Check for specific category mentions
         categories = ["food", "transport", "shopping", "bills", "entertainment", "groceries"]
         for cat in categories:
             if cat in message_lower:
-                transactions = await self.context.get_transactions(
-                    user_id, 
-                    days=30, 
-                    category=cat
-                )
-                return self.context.format_transactions_for_llm(transactions)
+                    transactions = await self.context.get_transactions(
+                        user_id, 
+                        days=30, 
+                        category=cat
+                    )
+                    return self.context.format_transactions_for_llm(transactions, currency_code=currency_code)
         
         # Check for merchant mentions
         if any(word in message_lower for word in ["swiggy", "zomato", "amazon", "uber", "ola"]):
@@ -436,11 +485,11 @@ class ChatAgent:
                         days=30, 
                         merchant=merchant
                     )
-                    return self.context.format_transactions_for_llm(transactions)
+                    return self.context.format_transactions_for_llm(transactions, currency_code=currency_code)
         
         # Default: get recent summary
         summary = await self.context.get_spending_summary(user_id, "month")
-        return self.context.format_summary_for_llm(summary)
+        return self.context.format_summary_for_llm(summary, currency_code=currency_code)
 
 
 class InsightAgent:
@@ -543,13 +592,20 @@ class AlertAgent:
         alerts = []
         
         user_context = await self.context.load_full_context(user_id)
+        profile = user_context.get("profile", {}) if user_context else {}
+        currency_code = (
+            profile.get("identity", {}).get("currency")
+            or profile.get("currency")
+            or "INR"
+        )
+        symbol = get_currency_symbol(currency_code)
         
         # Check 1: Anomaly alert
         if transaction.is_anomaly:
             alerts.append({
                 "type": "anomaly",
                 "severity": transaction.anomaly_severity,
-                "message": f"₹{transaction.amount:,} at {transaction.merchant or 'Unknown'} — {transaction.anomaly_reason}"
+                "message": f"{symbol}{transaction.amount:,} at {transaction.merchant or 'Unknown'} — {transaction.anomaly_reason}"
             })
         
         # Check 2: Budget warning
@@ -559,7 +615,6 @@ class AlertAgent:
             "month"
         )
         
-        profile = user_context.get("profile", {})
         budgets = profile.get("category_budgets", {})
         budget = budgets.get(transaction.category)
         
@@ -575,7 +630,7 @@ class AlertAgent:
                 alerts.append({
                     "type": "budget_exceeded",
                     "category": transaction.category,
-                    "message": f"You've exceeded your {transaction.category} budget by ₹{category_total - budget:,.0f}"
+                    "message": f"You've exceeded your {transaction.category} budget by {symbol}{category_total - budget:,.0f}"
                 })
         
         # Check 3: Goal milestone
@@ -585,7 +640,6 @@ class AlertAgent:
             pass
         
         # Check 4: Pattern violation (e.g., late night ordering when trying to stop)
-        patterns = user_context.get("patterns", {})
         memory = user_context.get("memory", {})
         
         # Check if user mentioned trying to reduce something

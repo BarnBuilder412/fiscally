@@ -26,6 +26,7 @@ import { Card, SmartAlerts } from '@/components';
 import { api } from '@/services/api';
 import { Transaction } from '@/types';
 import { eventBus, Events } from '@/services/eventBus';
+import { formatCurrency as formatMoney, getCurrencySymbol } from '@/utils/currency';
 
 const { width } = Dimensions.get('window');
 
@@ -40,6 +41,7 @@ const GoalCard = ({
   projectedDate,
   onTrack,
   targetDate,
+  currencyCode,
 }: {
   goal: string;
   current: number;
@@ -50,13 +52,15 @@ const GoalCard = ({
   projectedDate?: string;
   onTrack?: boolean;
   targetDate?: string;
+  currencyCode: string;
 }) => {
   const progress = Math.min((current / target) * 100, 100);
+  const currencySymbol = getCurrencySymbol(currencyCode);
 
   const formatAmount = (amount: number) => {
-    if (amount >= 100000) return `₹${(amount / 100000).toFixed(1)}L`;
-    if (amount >= 1000) return `₹${(amount / 1000).toFixed(0)}K`;
-    return `₹${amount}`;
+    if (amount >= 100000) return `${currencySymbol}${(amount / 100000).toFixed(1)}L`;
+    if (amount >= 1000) return `${currencySymbol}${(amount / 1000).toFixed(0)}K`;
+    return `${currencySymbol}${amount}`;
   };
 
   const formatDate = (dateStr?: string) => {
@@ -133,6 +137,7 @@ const AgenticCoachCard = ({
   transactions,
   goalData,
   insights,
+  currencyCode,
   onAskCoach,
 }: {
   budgetPercentage: number;
@@ -140,10 +145,13 @@ const AgenticCoachCard = ({
   transactions: Transaction[];
   goalData: any[];
   insights: any;
+  currencyCode: string;
   onAskCoach: () => void;
 }) => {
   const [currentTip, setCurrentTip] = useState({ message: '', emoji: '💡' });
   const [hasInitialized, setHasInitialized] = useState(false);
+
+  const currencySymbol = getCurrencySymbol(currencyCode);
 
   useEffect(() => {
     const tips = [];
@@ -171,7 +179,7 @@ const AgenticCoachCard = ({
       if (sortedCategories.length > 0) {
         const [topCat, topAmount] = sortedCategories[0];
         const topCatLabel = topCat.charAt(0).toUpperCase() + topCat.slice(1);
-        tips.push({ message: `Your top spending category is ${topCatLabel} (₹${topAmount.toLocaleString()}). Want tips to optimize?`, emoji: '📊' });
+        tips.push({ message: `Your top spending category is ${topCatLabel} (${currencySymbol}${topAmount.toLocaleString()}). Want tips to optimize?`, emoji: '📊' });
       }
     }
 
@@ -188,7 +196,7 @@ const AgenticCoachCard = ({
     // Transaction pattern tips
     if (transactions.length > 0) {
       const todayCount = transactions.filter(t =>
-        new Date(t.created_at).toDateString() === new Date().toDateString()
+        new Date(t.transaction_at || t.created_at).toDateString() === new Date().toDateString()
       ).length;
 
       if (todayCount === 0) {
@@ -199,14 +207,14 @@ const AgenticCoachCard = ({
 
       // Weekly comparison
       const thisWeek = transactions.filter(t => {
-        const txDate = new Date(t.created_at);
+        const txDate = new Date(t.transaction_at || t.created_at);
         const weekAgo = new Date();
         weekAgo.setDate(weekAgo.getDate() - 7);
         return txDate >= weekAgo;
       });
       const weekTotal = thisWeek.reduce((sum, t) => sum + t.amount, 0);
       if (weekTotal > 0) {
-        tips.push({ message: `You've spent ₹${weekTotal.toLocaleString()} this week. That's ₹${Math.round(weekTotal / 7).toLocaleString()}/day on average.`, emoji: '📈' });
+        tips.push({ message: `You've spent ${currencySymbol}${weekTotal.toLocaleString()} this week. That's ${currencySymbol}${Math.round(weekTotal / 7).toLocaleString()}/day on average.`, emoji: '📈' });
       }
     }
 
@@ -265,6 +273,7 @@ export default function HomeScreen() {
     goals: any[];
     tip?: string;
   } | null>(null);
+  const [userCurrency, setUserCurrency] = useState('INR');
 
   const loadData = useCallback(async () => {
     console.log('[HomeScreen] loadData called');
@@ -278,10 +287,11 @@ export default function HomeScreen() {
       setIsAuthenticated(true);
 
       // Load transactions and user preferences
-      const [txnResponse, insightsData, goalProgressData, storedGoals, storedBudget, storedIncome, storedGoalDetails] = await Promise.all([
+      const [txnResponse, insightsData, goalProgressData, profileData, storedGoals, storedBudget, storedIncome, storedGoalDetails] = await Promise.all([
         api.getTransactions({ limit: 50 }).catch(() => ({ transactions: [] })),
         api.getInsights().catch(() => null),
         api.getGoalProgress().catch((e) => { console.log('[HomeScreen] Goal progress API error:', e); return null; }),
+        api.getProfile().catch(() => null),
         AsyncStorage.getItem('user_goals'),
         AsyncStorage.getItem('user_budget'),
         AsyncStorage.getItem('user_income'),
@@ -302,6 +312,12 @@ export default function HomeScreen() {
       setUserBudget(storedBudget);
       setUserIncome(storedIncome);
       setUserGoalDetails(storedGoalDetails ? JSON.parse(storedGoalDetails) : {});
+      const profileCurrency = profileData?.profile?.identity?.currency || profileData?.profile?.currency;
+      if (profileCurrency) {
+        setUserCurrency(String(profileCurrency).toUpperCase());
+      } else if (txns.length > 0 && txns[0].currency) {
+        setUserCurrency(String(txns[0].currency).toUpperCase());
+      }
     } catch (error: any) {
       if (error?.message?.includes('credentials') || error?.message?.includes('Not authenticated')) {
         setIsAuthenticated(false);
@@ -325,6 +341,9 @@ export default function HomeScreen() {
     const unsubUpdated = eventBus.on(Events.TRANSACTION_UPDATED, () => {
       loadData();
     });
+    const unsubDeleted = eventBus.on(Events.TRANSACTION_DELETED, () => {
+      loadData();
+    });
     const unsubPrefs = eventBus.on(Events.PREFERENCES_CHANGED, () => {
       console.log('[HomeScreen] PREFERENCES_CHANGED event received');
       loadData();
@@ -333,6 +352,7 @@ export default function HomeScreen() {
     return () => {
       unsubTransaction();
       unsubUpdated();
+      unsubDeleted();
       unsubPrefs();
     };
   }, [loadData]);
@@ -356,7 +376,7 @@ export default function HomeScreen() {
   const getSpendingForPeriod = (period: 'today' | 'week' | 'month') => {
     const now = new Date();
     return transactions.filter(t => {
-      const txDate = new Date(t.created_at);
+      const txDate = new Date(t.transaction_at || t.created_at);
       if (period === 'today') {
         return txDate.toDateString() === now.toDateString();
       } else if (period === 'week') {
@@ -465,12 +485,7 @@ export default function HomeScreen() {
     })();
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
+    return formatMoney(amount, userCurrency);
   };
 
   if (isAuthenticated === false) {
@@ -574,6 +589,7 @@ export default function HomeScreen() {
                   projectedDate={goal.projectedDate}
                   onTrack={goal.onTrack}
                   targetDate={goal.targetDate}
+                  currencyCode={userCurrency}
                 />
               ))}
             </ScrollView>
@@ -604,6 +620,7 @@ export default function HomeScreen() {
           transactions={transactions}
           goalData={goalData}
           insights={insights}
+          currencyCode={userCurrency}
           onAskCoach={() => router.push('/(tabs)/chat')}
         />
 

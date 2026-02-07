@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import {
   Colors,
@@ -29,6 +30,7 @@ const FILTER_OPTIONS = [
 ];
 
 export default function TransactionsScreen() {
+  const router = useRouter();
   const [selectedFilter, setSelectedFilter] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
 
@@ -46,6 +48,12 @@ export default function TransactionsScreen() {
   useEffect(() => {
     fetchTransactions();
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchTransactions({ reset: true });
+    }, [fetchTransactions])
+  );
 
   // Handle filter change
   const handleFilterChange = useCallback((filterId: string) => {
@@ -94,7 +102,10 @@ export default function TransactionsScreen() {
   );
 
   const renderItem = ({ item }: { item: Transaction }) => (
-    <TransactionItem transaction={item} />
+    <TransactionItem
+      transaction={item}
+      onPress={() => router.push({ pathname: '/edit-transaction' as any, params: { id: item.id } } as any)}
+    />
   );
 
   const renderSeparator = () => <View style={styles.separator} />;

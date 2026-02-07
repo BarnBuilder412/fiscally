@@ -70,7 +70,7 @@ ASSISTANT RESPONSE:
 {{output}}
 
 Fiscally Guidelines:
-- Be specific with numbers (use ₹ symbol)
+- Be specific with numbers (use user currency symbol/code)
 - Keep responses under 100 words
 - Be friendly and non-judgmental
 - Never be preachy about spending
@@ -79,7 +79,7 @@ Evaluate if the response:
 1. Directly addresses the user's question
 2. Uses specific numbers (not vague statements)
 3. Maintains a friendly, non-judgmental tone
-4. Uses ₹ symbol correctly
+4. Uses a currency indicator correctly
 5. Is concise (under 100 words)
 
 Provide a score from 0 to 1 and explain your reasoning in one sentence.""",
@@ -101,12 +101,12 @@ ANOMALY_DETECTION_RULE = {
     "prompt": """Evaluate this anomaly detection result.
 
 TRANSACTION:
-Amount: ₹{{metadata.amount}}
+Amount: {{metadata.amount}}
 Category: {{metadata.category}}
 Merchant: {{metadata.merchant}}
 
 USER STATS:
-Category Average: ₹{{metadata.category_avg}}
+Category Average: {{metadata.category_avg}}
 
 DETECTION RESULT:
 {{output}}
@@ -146,7 +146,7 @@ VOICE INPUT (transcript):
 {{metadata.transcript_preview}}
 
 PARSED OUTPUT:
-Amount: ₹{{metadata.parsed_amount}}
+Amount: {{metadata.parsed_amount}}
 Category: {{metadata.parsed_category}}
 Confidence: {{metadata.confidence}}
 

@@ -55,10 +55,10 @@ class ConfidenceCalibration(base_metric.BaseMetric):
         )
 
 
-class RupeeSymbolUsage(base_metric.BaseMetric):
-    """Check if response uses ₹ symbol correctly (Fiscally guideline)."""
+class CurrencyIndicatorUsage(base_metric.BaseMetric):
+    """Check if response uses a recognizable currency indicator."""
     
-    name = "rupee_symbol_usage"
+    name = "currency_indicator_usage"
     
     def score(
         self,
@@ -68,16 +68,26 @@ class RupeeSymbolUsage(base_metric.BaseMetric):
         if not isinstance(output, str):
             output = str(output)
             
-        has_rupee = "₹" in output
-        has_rs = "rs" in output.lower() or "rupee" in output.lower()
+        currency_symbols = ["₹", "$", "€", "£", "¥", "₩", "₽", "₫", "฿"]
+        currency_codes = ["inr", "usd", "eur", "gbp", "jpy", "sgd", "aed", "cad", "aud"]
+        has_symbol = any(symbol in output for symbol in currency_symbols)
+        has_code = any(code in output.lower() for code in currency_codes)
         
-        score = 1.0 if has_rupee else (0.5 if has_rs else 0.0)
+        score = 1.0 if has_symbol else (0.6 if has_code else 0.0)
         
         return score_result.ScoreResult(
             value=score,
             name=self.name,
-            reason="Uses ₹ symbol" if has_rupee else ("Uses Rs/rupee" if has_rs else "Missing currency indicator")
+            reason="Uses currency symbol" if has_symbol else ("Uses currency code" if has_code else "Missing currency indicator")
         )
+
+
+class RupeeSymbolUsage(CurrencyIndicatorUsage):
+    """
+    Backward-compatible alias.
+    Keep class name for older experiment scripts.
+    """
+    name = "rupee_symbol_usage"
 
 
 class ResponseConciseness(base_metric.BaseMetric):
@@ -224,8 +234,8 @@ class SpecificNumbersMetric(base_metric.BaseMetric):
         if not isinstance(output, str):
             output = str(output)
         
-        # Find numbers (including with ₹ or commas)
-        number_pattern = r'₹?\d[\d,]*\.?\d*'
+        # Find numeric amounts with optional currency symbol/code.
+        number_pattern = r'(?:₹|\$|€|£|¥|INR|USD|EUR|GBP)?\s?\d[\d,]*\.?\d*'
         numbers_found = re.findall(number_pattern, output)
         
         if len(numbers_found) >= 3:
@@ -251,7 +261,7 @@ def get_fiscally_metrics():
     return [
         CategoryAccuracy(),
         ConfidenceCalibration(),
-        RupeeSymbolUsage(),
+        CurrencyIndicatorUsage(),
         ResponseConciseness(),
         VoiceParsingAccuracy(),
         ToneAppropriatenessMetric(),
@@ -262,7 +272,7 @@ def get_fiscally_metrics():
 def get_chat_metrics():
     """Get metrics specifically for chat evaluation."""
     return [
-        RupeeSymbolUsage(),
+        CurrencyIndicatorUsage(),
         ResponseConciseness(),
         ToneAppropriatenessMetric(),
         SpecificNumbersMetric(),

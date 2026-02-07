@@ -11,10 +11,16 @@ export interface User {
 export interface Transaction {
   id: string;
   amount: number;
+  currency?: string;
   merchant?: string;
   category: string;
   note?: string;
-  source: 'manual' | 'voice' | 'sms';
+  source: 'manual' | 'voice' | 'sms' | 'receipt';
+  spend_class?: 'need' | 'want' | 'luxury';
+  spend_class_confidence?: string;
+  spend_class_reason?: string;
+  opik_trace_id?: string;
+  transaction_at?: string;
   created_at: string;
   user_id: string;
   is_anomaly?: boolean;
@@ -35,6 +41,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  trace_id?: string;
   reasoning_steps?: ReasoningStep[];
 }
 

@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 import { Transaction } from '@/types';
+import { formatCurrency } from '@/utils/currency';
 
 interface Alert {
     id: string;
@@ -49,12 +50,27 @@ export const SmartAlerts = ({
                     id: `anomaly-${t.id}`,
                     type: 'anomaly',
                     title: 'Unusual Transaction',
-                    message: t.anomaly_reason || `₹${t.amount.toLocaleString()} at ${t.merchant || 'Unknown'}`,
+                    message: t.anomaly_reason || `${formatCurrency(t.amount, t.currency || 'INR')} at ${t.merchant || 'Unknown'}`,
                     severity: 'warning',
                     transaction: t,
                     actionable: true,
                 });
             });
+
+        // Spending mix alerts
+        const luxuryTransactions = transactions.filter(t => t.spend_class === 'luxury');
+        const luxuryTotal = luxuryTransactions.reduce((sum, t) => sum + t.amount, 0);
+        const total = transactions.reduce((sum, t) => sum + t.amount, 0);
+        const luxuryShare = total > 0 ? (luxuryTotal / total) * 100 : 0;
+        if (luxuryTransactions.length >= 3 && luxuryShare >= 40 && !dismissedIds.has('luxury-share')) {
+            alerts.push({
+                id: 'luxury-share',
+                type: 'tip',
+                title: 'Lifestyle Spend Alert',
+                message: `${Math.round(luxuryShare)}% of recent spend is luxury-tagged. Review if this aligns with your goals.`,
+                severity: 'info',
+            });
+        }
 
         // Budget alerts
         if (budgetPercentage >= 100 && !dismissedIds.has('budget-exceeded')) {

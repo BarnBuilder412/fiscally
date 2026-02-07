@@ -26,6 +26,7 @@ import {
 } from '@/constants/theme';
 import { Button } from '@/components';
 import { api } from '@/services/api';
+import { requestSmsPermissions, startSmsTracking, stopSmsTracking } from '@/services/smsTracking';
 
 const { width } = Dimensions.get('window');
 
@@ -183,6 +184,16 @@ export default function OnboardingScreen() {
           console.warn('Failed to sync goals to backend:', syncError);
         }
       }
+      if (smsEnabled) {
+        try {
+          await startSmsTracking();
+        } catch (smsError) {
+          console.warn('Failed to start SMS tracking:', smsError);
+        }
+      } else {
+        await stopSmsTracking();
+      }
+
       router.replace('/(tabs)');
     } catch (e) {
       console.error('Failed to save onboarding state', e);
@@ -192,6 +203,18 @@ export default function OnboardingScreen() {
 
   const handleAddExpense = () => {
     router.replace('/add-expense');
+  };
+
+  const handleEnableSms = async () => {
+    if (Platform.OS === 'android') {
+      const granted = await requestSmsPermissions();
+      if (!granted) {
+        setSmsEnabled(false);
+        return;
+      }
+    }
+    setSmsEnabled(true);
+    handleNext();
   };
 
   const toggleGoal = (goalId: string) => {
@@ -609,10 +632,7 @@ export default function OnboardingScreen() {
 
       <Button
         title="✓ Enable Auto-Tracking"
-        onPress={() => {
-          setSmsEnabled(true);
-          handleNext();
-        }}
+        onPress={handleEnableSms}
         size="lg"
         style={styles.continueButton}
       />

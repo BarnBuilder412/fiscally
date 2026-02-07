@@ -142,6 +142,7 @@ export default function ChatScreen() {
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [thinkingSteps, setThinkingSteps] = useState<ReasoningStep[]>([]);
+  const [feedbackByTrace, setFeedbackByTrace] = useState<Record<string, 1 | 2>>({});
   const scrollViewRef = useRef<ScrollView>(null);
 
   const handleSend = async (text?: string) => {
@@ -158,7 +159,11 @@ export default function ChatScreen() {
     setMessages(prev => [...prev, userMessage]);
     setInputText('');
     setIsTyping(true);
-    setThinkingSteps([]);
+    setThinkingSteps([
+      { step_type: 'analyzing', content: 'Understanding your question' },
+      { step_type: 'querying', content: 'Fetching relevant transaction data' },
+      { step_type: 'insight', content: 'Preparing a personalized response' },
+    ]);
 
     setTimeout(() => {
       scrollViewRef.current?.scrollToEnd({ animated: true });
@@ -176,6 +181,7 @@ export default function ChatScreen() {
         role: 'assistant',
         content: response.response,
         timestamp: new Date().toISOString(),
+        trace_id: response.trace_id,
         reasoning_steps: reasoningSteps,
       };
 
@@ -196,6 +202,16 @@ export default function ChatScreen() {
       setTimeout(() => {
         scrollViewRef.current?.scrollToEnd({ animated: true });
       }, 100);
+    }
+  };
+
+  const handleFeedback = async (traceId: string, rating: 1 | 2) => {
+    if (!traceId || feedbackByTrace[traceId]) return;
+    try {
+      await api.sendChatFeedback(traceId, rating);
+      setFeedbackByTrace(prev => ({ ...prev, [traceId]: rating }));
+    } catch (error) {
+      console.warn('Failed to send chat feedback:', error);
     }
   };
 
@@ -280,6 +296,30 @@ export default function ChatScreen() {
                   {message.reasoning_steps && message.reasoning_steps.length > 0 && (
                     <ReasoningStepsDisplay steps={message.reasoning_steps} />
                   )}
+                  {message.trace_id && (
+                    <View style={styles.feedbackRow}>
+                      <TouchableOpacity
+                        style={[
+                          styles.feedbackButton,
+                          feedbackByTrace[message.trace_id] === 2 && styles.feedbackButtonActive,
+                        ]}
+                        onPress={() => handleFeedback(message.trace_id!, 2)}
+                      >
+                        <Ionicons name="thumbs-up-outline" size={14} color={Colors.textSecondary} />
+                        <Text style={styles.feedbackText}>Helpful</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.feedbackButton,
+                          feedbackByTrace[message.trace_id] === 1 && styles.feedbackButtonActive,
+                        ]}
+                        onPress={() => handleFeedback(message.trace_id!, 1)}
+                      >
+                        <Ionicons name="thumbs-down-outline" size={14} color={Colors.textSecondary} />
+                        <Text style={styles.feedbackText}>Not helpful</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
                 </View>
               )}
             </View>
@@ -288,11 +328,15 @@ export default function ChatScreen() {
           {/* Typing Indicator */}
           {isTyping && (
             <View style={[styles.messageBubble, styles.assistantBubble]}>
-              <View style={styles.typingIndicator}>
-                <View style={[styles.typingDot, styles.typingDot1]} />
-                <View style={[styles.typingDot, styles.typingDot2]} />
-                <View style={[styles.typingDot, styles.typingDot3]} />
-              </View>
+              {thinkingSteps.length > 0 ? (
+                <ThinkingIndicator steps={thinkingSteps} />
+              ) : (
+                <View style={styles.typingIndicator}>
+                  <View style={[styles.typingDot, styles.typingDot1]} />
+                  <View style={[styles.typingDot, styles.typingDot2]} />
+                  <View style={[styles.typingDot, styles.typingDot3]} />
+                </View>
+              )}
             </View>
           )}
         </ScrollView>
@@ -567,5 +611,30 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     color: Colors.textSecondary,
     flex: 1,
+  },
+  feedbackRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginTop: Spacing.sm,
+  },
+  feedbackButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: Colors.gray200,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    backgroundColor: Colors.gray50,
+  },
+  feedbackButtonActive: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primary + '15',
+  },
+  feedbackText: {
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+    fontWeight: FontWeight.medium,
   },
 });

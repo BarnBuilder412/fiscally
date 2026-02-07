@@ -25,6 +25,7 @@ import { api } from '@/services/api';
 import { Transaction } from '@/types';
 import { eventBus, Events } from '@/services/eventBus';
 import { CATEGORIES, getCategoryColor, getCategoryIcon, getParentCategory } from '@/constants/categories';
+import { formatCurrency as formatMoney, getCurrencySymbol } from '@/utils/currency';
 
 
 export default function TrendsScreen() {
@@ -33,6 +34,7 @@ export default function TrendsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [userBudget, setUserBudget] = useState<string | null>(null);
+  const [userCurrency, setUserCurrency] = useState('INR');
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
   const [showAllCategories, setShowAllCategories] = useState(false);
 
@@ -45,14 +47,21 @@ export default function TrendsScreen() {
 
   const loadData = async () => {
     try {
-      const [txnResponse, storedBudget] = await Promise.all([
+      const [txnResponse, profileData, storedBudget] = await Promise.all([
         api.getTransactions({ limit: 100 }).catch(() => ({ transactions: [] })),
+        api.getProfile().catch(() => null),
         AsyncStorage.getItem('user_budget'),
       ]);
 
       const txns = txnResponse?.transactions || [];
       setTransactions(Array.isArray(txns) ? txns : []);
       setUserBudget(storedBudget);
+      const profileCurrency = profileData?.profile?.identity?.currency || profileData?.profile?.currency;
+      if (profileCurrency) {
+        setUserCurrency(String(profileCurrency).toUpperCase());
+      } else if (txns.length > 0 && txns[0].currency) {
+        setUserCurrency(String(txns[0].currency).toUpperCase());
+      }
     } catch (error) {
       console.error('Failed to load trends data:', error);
     } finally {
@@ -68,11 +77,13 @@ export default function TrendsScreen() {
   useEffect(() => {
     const unsubAdded = eventBus.on(Events.TRANSACTION_ADDED, loadData);
     const unsubUpdated = eventBus.on(Events.TRANSACTION_UPDATED, loadData);
+    const unsubDeleted = eventBus.on(Events.TRANSACTION_DELETED, loadData);
     const unsubPrefs = eventBus.on(Events.PREFERENCES_CHANGED, loadData);
 
     return () => {
       unsubAdded();
       unsubUpdated();
+      unsubDeleted();
       unsubPrefs();
     };
   }, []);
@@ -88,6 +99,8 @@ export default function TrendsScreen() {
     await loadData();
     setRefreshing(false);
   };
+
+  const getTransactionDate = (t: Transaction) => new Date(t.transaction_at || t.created_at);
 
   // Get monthly budget amount
   const getBudgetAmount = () => {
@@ -105,7 +118,7 @@ export default function TrendsScreen() {
   const getMonthlyTransactions = () => {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    return transactions.filter(t => new Date(t.created_at) >= monthStart);
+    return transactions.filter(t => getTransactionDate(t) >= monthStart);
   };
 
   // Filter transactions for last month (for comparison)
@@ -114,7 +127,7 @@ export default function TrendsScreen() {
     const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
     return transactions.filter(t => {
-      const date = new Date(t.created_at);
+      const date = getTransactionDate(t);
       return date >= lastMonthStart && date <= lastMonthEnd;
     });
   };
@@ -189,6 +202,14 @@ export default function TrendsScreen() {
 
   const categoryBreakdown = getCategoryBreakdown();
 
+  const spendClassSummary = monthlyTxns.reduce((acc, txn) => {
+    const spendClass = txn.spend_class;
+    if (!spendClass) return acc;
+    acc[spendClass] = (acc[spendClass] || 0) + txn.amount;
+    return acc;
+  }, {} as Record<string, number>);
+  const totalClassified = Object.values(spendClassSummary).reduce((sum, value) => sum + value, 0);
+
   // Generate personalized AI insight
   const getAIInsight = () => {
     if (categoryBreakdown.length === 0) {
@@ -225,14 +246,14 @@ export default function TrendsScreen() {
     if (topCategory.status === 'Near Limit' || topCategory.status === 'Over Budget') {
       return {
         emoji: '💡',
-        text: `Your ${topCategory.name.toLowerCase()} spending (₹${topCategory.amount.toLocaleString()}) is approaching your limit. Consider cutting back this week.`,
+        text: `Your ${topCategory.name.toLowerCase()} spending (${formatMoney(topCategory.amount, userCurrency)}) is approaching your limit. Consider cutting back this week.`,
         highlight: topCategory.name,
       };
     }
 
     return {
       emoji: '✨',
-      text: `You've made ${monthlyTxns.length} transactions this month totaling ₹${totalSpent.toLocaleString()}. Your top category is ${topCategory.name.toLowerCase()}.`,
+      text: `You've made ${monthlyTxns.length} transactions this month totaling ${formatMoney(totalSpent, userCurrency)}. Your top category is ${topCategory.name.toLowerCase()}.`,
       highlight: topCategory.name,
     };
   };
@@ -262,8 +283,8 @@ export default function TrendsScreen() {
       return {
         emoji: '💰',
         title: 'Daily Budget',
-        text: `You have ₹${remaining.toLocaleString()} left for ${daysRemaining} days. That's ₹${dailyBudget.toLocaleString()} per day.`,
-        highlight: `₹${dailyBudget.toLocaleString()}/day`,
+        text: `You have ${formatMoney(remaining, userCurrency)} left for ${daysRemaining} days. That's ${formatMoney(dailyBudget, userCurrency)} per day.`,
+        highlight: `${formatMoney(dailyBudget, userCurrency)}/day`,
       };
     }
 
@@ -291,12 +312,7 @@ export default function TrendsScreen() {
   };
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
+    return formatMoney(amount, userCurrency);
   };
 
   if (loading) {
@@ -469,6 +485,33 @@ export default function TrendsScreen() {
           </Card>
         )}
 
+        {/* Lifestyle Mix (Need / Want / Luxury) */}
+        {totalClassified > 0 && (
+          <Card style={styles.lifestyleCard}>
+            <Text style={styles.lifestyleTitle}>Lifestyle Mix</Text>
+            {(['need', 'want', 'luxury'] as const).map((key) => {
+              const amount = spendClassSummary[key] || 0;
+              const percentage = totalClassified > 0 ? (amount / totalClassified) * 100 : 0;
+              const color =
+                key === 'need' ? '#22C55E' : key === 'want' ? '#3B82F6' : '#EF4444';
+
+              return (
+                <View key={key} style={styles.lifestyleRow}>
+                  <View style={styles.lifestyleLabelWrap}>
+                    <View style={[styles.lifestyleDot, { backgroundColor: color }]} />
+                    <Text style={styles.lifestyleLabel}>{key.toUpperCase()}</Text>
+                  </View>
+                  <Text style={styles.lifestyleAmount}>{formatCurrency(amount)}</Text>
+                  <View style={styles.lifestyleBarTrack}>
+                    <View style={[styles.lifestyleBarFill, { width: `${percentage}%`, backgroundColor: color }]} />
+                  </View>
+                  <Text style={styles.lifestylePercent}>{Math.round(percentage)}%</Text>
+                </View>
+              );
+            })}
+          </Card>
+        )}
+
         {/* AI Insight */}
         <View style={styles.aiInsightCard}>
           <View style={styles.aiIconContainer}>
@@ -573,6 +616,60 @@ const styles = StyleSheet.create({
   summaryHighlight: {
     color: '#22C55E',
     fontWeight: FontWeight.semibold,
+  },
+  lifestyleCard: {
+    marginBottom: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  lifestyleTitle: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.bold,
+    color: Colors.textPrimary,
+    marginBottom: Spacing.xs,
+  },
+  lifestyleRow: {
+    backgroundColor: Colors.gray50,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.sm,
+  },
+  lifestyleLabelWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+    gap: 6,
+  },
+  lifestyleDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  lifestyleLabel: {
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.bold,
+    color: Colors.textSecondary,
+    letterSpacing: 0.6,
+  },
+  lifestyleAmount: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: Colors.textPrimary,
+    marginBottom: 6,
+  },
+  lifestyleBarTrack: {
+    height: 6,
+    backgroundColor: Colors.gray200,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  lifestyleBarFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  lifestylePercent: {
+    fontSize: FontSize.xs,
+    color: Colors.gray500,
+    marginTop: 4,
+    fontWeight: FontWeight.medium,
   },
   aiInsightCard: {
     flexDirection: 'row',
