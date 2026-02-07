@@ -719,7 +719,7 @@ class ContextManager:
             except (ValueError, TypeError):
                 target_amount = 0
             
-            current_saved = goal.get("current_saved", 0)
+            current_saved = goal.get("current_amount", goal.get("current_saved", 0))
             amount_needed = max(0, target_amount - current_saved)
             
             # Calculate ideal monthly contribution based on deadline
@@ -743,6 +743,7 @@ class ContextManager:
                 "label": label,
                 "target_amount": target_amount,
                 "current_saved": current_saved,
+                "current_amount": current_saved,
                 "amount_needed": amount_needed,
                 "ideal_monthly": ideal_monthly,
                 "months_to_deadline": months_to_deadline,
@@ -816,6 +817,9 @@ class ContextManager:
                 "priority": goal.get("priority", 999),
                 "target_amount": target_amount,
                 "target_date": target_date_str,
+                "target_amount": target_amount,
+                "target_date": target_date_str,
+                "current": current_saved,
                 "current_saved": current_saved,
                 "amount_needed": amount_needed,
                 "ideal_monthly": round(ideal_monthly, 2),
@@ -887,4 +891,6 @@ class ContextManager:
                     goal["current_saved"] = current + amount_to_add
                     break
             user.goals["active_goals"] = active
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(user, "goals")
             self.db.commit()

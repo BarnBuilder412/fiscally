@@ -61,6 +61,12 @@ def setup_demo_user(db: Session):
         "preferences": {
             "notification_style": "proactive",
             "voice_enabled": True
+        },
+        "financial": {
+            "salary_range_id": "75k_150k",
+            "budget_range_id": "40k_70k", 
+            "monthly_salary": 112500,
+            "monthly_budget": 55000
         }
     }
     
