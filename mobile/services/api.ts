@@ -76,7 +76,25 @@ class ApiClient {
       throw new Error(errorMessage);
     }
 
-    return response.json();
+    if (response.status === 204) {
+      return undefined as T;
+    }
+
+    const rawBody = await response.text();
+    if (!rawBody) {
+      return undefined as T;
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      return JSON.parse(rawBody) as T;
+    }
+
+    try {
+      return JSON.parse(rawBody) as T;
+    } catch {
+      return rawBody as T;
+    }
   }
 
   // Auth

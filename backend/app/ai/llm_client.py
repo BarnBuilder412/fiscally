@@ -476,17 +476,53 @@ class LLMClient:
         
         try:
             result = json.loads(response)
+            amount_raw = result.get("amount", 0)
+            try:
+                amount = float(amount_raw)
+            except (TypeError, ValueError):
+                amount = 0.0
+            if amount < 0:
+                amount = 0.0
+
+            category_raw = result.get("category")
+            category = str(category_raw).strip().lower() if category_raw is not None else "other"
+            if not category:
+                category = "other"
+            if category not in CATEGORIES:
+                category = "other"
+
+            confidence_raw = result.get("confidence", 0.5)
+            try:
+                confidence = float(confidence_raw)
+            except (TypeError, ValueError):
+                confidence = 0.5
+            confidence = max(0.0, min(1.0, confidence))
+
+            merchant = result.get("merchant")
+            if merchant is not None:
+                merchant = str(merchant).strip()[:255] or None
+
+            needs_clarification = result.get("needs_clarification", False)
+            if isinstance(needs_clarification, str):
+                needs_clarification = needs_clarification.lower() in {"true", "1", "yes"}
+            else:
+                needs_clarification = bool(needs_clarification)
+
+            clarification_question = result.get("clarification_question")
+            if clarification_question is not None:
+                clarification_question = str(clarification_question).strip()[:255] or None
+
             output = {
-                "amount": result.get("amount", 0),
-                "merchant": result.get("merchant"),
-                "category": result.get("category", "other"),
-                "confidence": result.get("confidence", 0.5),
-                "needs_clarification": result.get("needs_clarification", False),
-                "clarification_question": result.get("clarification_question")
+                "amount": amount,
+                "merchant": merchant,
+                "category": category,
+                "confidence": confidence,
+                "needs_clarification": needs_clarification,
+                "clarification_question": clarification_question,
             }
         except json.JSONDecodeError:
             output = {
-                "amount": 0,
+                "amount": 0.0,
                 "merchant": None,
                 "category": "other",
                 "confidence": 0.0,

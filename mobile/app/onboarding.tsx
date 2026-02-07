@@ -194,7 +194,10 @@ export default function OnboardingScreen() {
       }
       if (smsEnabled) {
         try {
-          await startSmsTracking();
+          const result = await startSmsTracking();
+          if (!result.started) {
+            console.warn('SMS tracking did not start:', result.reason);
+          }
         } catch (smsError) {
           console.warn('Failed to start SMS tracking:', smsError);
         }

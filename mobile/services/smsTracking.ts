@@ -19,6 +19,11 @@ type SmsRecord = {
   date?: number;
 };
 
+export type SmsTrackingStartResult = {
+  started: boolean;
+  reason?: 'android_only' | 'module_unavailable' | 'permission_denied' | 'sync_failed';
+};
+
 const SMS_TRACKING_ENABLED_KEY = 'sms_tracking_enabled';
 const SMS_DEDUPE_CACHE_KEY = 'sms_tracking_dedupe_cache';
 const SMS_LAST_SYNC_TS_KEY = 'sms_last_sync_ts';
@@ -37,6 +42,21 @@ const MERCHANT_PATTERNS = [
 ];
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+const getSmsModule = () => {
+  if (Platform.OS !== 'android') return null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const smsAndroid = require('react-native-get-sms-android');
+    return smsAndroid?.list ? smsAndroid : null;
+  } catch {
+    return null;
+  }
+};
+
+export const isSmsModuleAvailable = (): boolean => {
+  return getSmsModule() !== null;
+};
 
 const parseAmount = (body: string): number | null => {
   for (const pattern of AMOUNT_PATTERNS) {
@@ -137,13 +157,7 @@ const parseSmsToTransaction = (sms: SmsRecord): ParsedSmsTransaction | null => {
 const fetchInboxSms = async (minDateMs?: number): Promise<SmsRecord[]> => {
   if (Platform.OS !== 'android') return [];
 
-  let smsAndroid: any;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    smsAndroid = require('react-native-get-sms-android');
-  } catch {
-    return [];
-  }
+  const smsAndroid = getSmsModule();
   if (!smsAndroid?.list) return [];
 
   return new Promise((resolve) => {
@@ -173,6 +187,13 @@ export const requestSmsPermissions = async (): Promise<boolean> => {
   const receive = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECEIVE_SMS);
   const read = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.READ_SMS);
   return receive === PermissionsAndroid.RESULTS.GRANTED && read === PermissionsAndroid.RESULTS.GRANTED;
+};
+
+const hasSmsPermissions = async (): Promise<boolean> => {
+  if (Platform.OS !== 'android') return false;
+  const hasReceive = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECEIVE_SMS);
+  const hasRead = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_SMS);
+  return hasReceive && hasRead;
 };
 
 export const syncSmsTransactions = async () => {
@@ -266,13 +287,33 @@ export const syncSmsTransactions = async () => {
   }
 };
 
-export const startSmsTracking = async () => {
-  if (Platform.OS !== 'android') return;
+export const startSmsTracking = async (): Promise<SmsTrackingStartResult> => {
+  if (Platform.OS !== 'android') {
+    return { started: false, reason: 'android_only' };
+  }
+  if (!isSmsModuleAvailable()) {
+    return { started: false, reason: 'module_unavailable' };
+  }
+  if (!(await hasSmsPermissions())) {
+    return { started: false, reason: 'permission_denied' };
+  }
+
   await AsyncStorage.setItem(SMS_TRACKING_ENABLED_KEY, 'true');
 
   if (pollTimer) clearInterval(pollTimer);
-  await syncSmsTransactions();
-  pollTimer = setInterval(syncSmsTransactions, SMS_POLL_INTERVAL_MS);
+  try {
+    await syncSmsTransactions();
+  } catch (error) {
+    console.warn('Initial SMS sync failed:', error);
+    return { started: false, reason: 'sync_failed' };
+  }
+  pollTimer = setInterval(() => {
+    syncSmsTransactions().catch((error) => {
+      console.warn('SMS polling sync failed:', error);
+    });
+  }, SMS_POLL_INTERVAL_MS);
+
+  return { started: true };
 };
 
 export const stopSmsTracking = async () => {
@@ -292,6 +333,9 @@ export const restoreSmsTracking = async () => {
   if (Platform.OS !== 'android') return;
   const enabled = await isSmsTrackingEnabled();
   if (enabled) {
-    await startSmsTracking();
+    const result = await startSmsTracking();
+    if (!result.started) {
+      await AsyncStorage.setItem(SMS_TRACKING_ENABLED_KEY, 'false');
+    }
   }
 };

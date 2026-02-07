@@ -18,8 +18,6 @@ import { api } from '@/services/api';
 import { eventBus, Events } from '@/services/eventBus';
 import { Transaction } from '@/types';
 
-const SPEND_CLASSES: Array<'need' | 'want' | 'luxury'> = ['need', 'want', 'luxury'];
-
 export default function EditTransactionScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
@@ -33,7 +31,6 @@ export default function EditTransactionScreen() {
   const [merchant, setMerchant] = useState('');
   const [note, setNote] = useState('');
   const [category, setCategory] = useState('other');
-  const [spendClass, setSpendClass] = useState<'need' | 'want' | 'luxury' | undefined>(undefined);
 
   useEffect(() => {
     const load = async () => {
@@ -48,7 +45,6 @@ export default function EditTransactionScreen() {
         setMerchant(data.merchant || '');
         setNote(data.note || '');
         setCategory(data.category || 'other');
-        setSpendClass(data.spend_class);
       } catch (error: any) {
         Alert.alert('Error', error?.message || 'Failed to load transaction');
       } finally {
@@ -67,7 +63,6 @@ export default function EditTransactionScreen() {
         merchant: merchant || undefined,
         note: note || undefined,
         category,
-        spend_class: spendClass,
       });
       eventBus.emit(Events.TRANSACTION_UPDATED);
       router.back();
@@ -169,22 +164,9 @@ export default function EditTransactionScreen() {
         </View>
 
         <Text style={styles.label}>Need/Want/Luxury</Text>
-        <View style={styles.chipWrap}>
-          {SPEND_CLASSES.map((value) => (
-            <TouchableOpacity
-              key={value}
-              style={[styles.chip, spendClass === value && styles.chipActive]}
-              onPress={() => setSpendClass(value)}
-            >
-              <Text style={[styles.chipText, spendClass === value && styles.chipTextActive]}>
-                {value.toUpperCase()}
-              </Text>
-            </TouchableOpacity>
-          ))}
-          <TouchableOpacity style={styles.chip} onPress={() => setSpendClass(undefined)}>
-            <Text style={styles.chipText}>CLEAR</Text>
-          </TouchableOpacity>
-        </View>
+        <Text style={styles.readOnlyValue}>
+          {(transaction.spend_class || 'Not classified yet').toUpperCase()}
+        </Text>
 
         <Text style={styles.label}>Note</Text>
         <TextInput
@@ -246,6 +228,18 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.semibold,
     color: Colors.textSecondary,
   },
+  readOnlyValue: {
+    backgroundColor: Colors.gray50,
+    borderRadius: BorderRadius.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.gray200,
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: Colors.textPrimary,
+    letterSpacing: 0.3,
+  },
   input: {
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.md,
@@ -291,4 +285,3 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.xl,
   },
 });
-

@@ -24,7 +24,13 @@ import {
   Shadows,
 } from '@/constants/theme';
 import { Card } from '@/components';
-import { isSmsTrackingEnabled, requestSmsPermissions, startSmsTracking, stopSmsTracking } from '@/services/smsTracking';
+import {
+  isSmsModuleAvailable,
+  isSmsTrackingEnabled,
+  requestSmsPermissions,
+  startSmsTracking,
+  stopSmsTracking,
+} from '@/services/smsTracking';
 import { enableLocationAwareBudgeting } from '@/services/locationBudgeting';
 
 interface SettingItemProps {
@@ -130,13 +136,32 @@ export default function ProfileScreen() {
     }
 
     if (value) {
+      if (!isSmsModuleAvailable()) {
+        Alert.alert(
+          'SMS module unavailable',
+          'Auto SMS tracking requires an Android development build or production app. Expo Go does not support this native module.'
+        );
+        setSmsTracking(false);
+        return;
+      }
       const granted = await requestSmsPermissions();
       if (!granted) {
         Alert.alert('Permission required', 'SMS permission is required for auto-tracking.');
         setSmsTracking(false);
         return;
       }
-      await startSmsTracking();
+      const result = await startSmsTracking();
+      if (!result.started) {
+        if (result.reason === 'permission_denied') {
+          Alert.alert('Permission required', 'SMS permission is required for auto-tracking.');
+        } else if (result.reason === 'module_unavailable') {
+          Alert.alert('SMS module unavailable', 'Install an Android development build to enable SMS tracking.');
+        } else {
+          Alert.alert('SMS tracking failed', 'Could not start SMS auto-tracking right now. Please try again.');
+        }
+        setSmsTracking(false);
+        return;
+      }
       setSmsTracking(true);
       return;
     }

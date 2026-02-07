@@ -1,7 +1,7 @@
 """
 Profile endpoints for user context management.
 """
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
@@ -11,6 +11,40 @@ from app.schemas.user import UserResponse, ProfileUpdate
 from app.services.localization import apply_profile_location_defaults
 
 router = APIRouter()
+
+
+def _coerce_profile_financial(profile: dict[str, Any]) -> dict[str, Any]:
+    """Normalize financial fields to stable numeric/string primitives."""
+    financial = profile.get("financial")
+    if not isinstance(financial, dict):
+        return profile
+
+    for key in ("monthly_salary", "monthly_budget"):
+        value = financial.get(key)
+        if value is None:
+            continue
+        if isinstance(value, str):
+            cleaned = value.replace(",", "").strip()
+            if not cleaned:
+                financial[key] = None
+                continue
+            try:
+                financial[key] = int(float(cleaned))
+            except ValueError:
+                financial[key] = None
+        elif isinstance(value, (int, float)):
+            financial[key] = int(value)
+        else:
+            financial[key] = None
+
+    for key in ("salary_range_id", "budget_range_id"):
+        value = financial.get(key)
+        if value is None:
+            continue
+        financial[key] = str(value)
+
+    profile["financial"] = financial
+    return profile
 
 
 @router.get("", response_model=UserResponse)
@@ -48,6 +82,7 @@ async def update_profile(
             else:
                 existing_profile[key] = value
 
+        existing_profile = _coerce_profile_financial(existing_profile)
         existing_profile = apply_profile_location_defaults(existing_profile)
         
         current_user.profile = existing_profile

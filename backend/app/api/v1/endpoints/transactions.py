@@ -613,6 +613,27 @@ async def parse_voice_transaction(
         
         # Include the transcript in the response
         result["transcript"] = transcript
+        # Defensive normalization so response always matches schema.
+        try:
+            amount = float(result.get("amount", 0.0))
+        except (TypeError, ValueError):
+            amount = 0.0
+        if amount < 0:
+            amount = 0.0
+
+        category = result.get("category")
+        if not isinstance(category, str) or not category.strip():
+            category = "other"
+
+        try:
+            confidence = float(result.get("confidence", 0.0))
+        except (TypeError, ValueError):
+            confidence = 0.0
+        confidence = max(0.0, min(1.0, confidence))
+
+        result["amount"] = amount
+        result["category"] = category.strip().lower()
+        result["confidence"] = confidence
         
         return result
         
@@ -721,7 +742,11 @@ async def parse_receipt_transaction(
         )
 
     merchant = parsed.get("merchant")
-    category = parsed.get("category") or "other"
+    parsed_category = parsed.get("category")
+    if isinstance(parsed_category, str):
+        parsed_category = parsed_category.strip().lower()
+    else:
+        parsed_category = None
     parsed_currency = (parsed.get("currency") or (
         user_context.get("profile", {}).get("identity", {}).get("currency") or "INR"
     )).upper()
@@ -729,13 +754,13 @@ async def parse_receipt_transaction(
     transaction_payload = {
         "amount": parsed_amount,
         "merchant": merchant,
-        "category": category,
+        "category": parsed_category or "other",
         "timestamp": parsed.get("transaction_at") or datetime.utcnow().isoformat(),
     }
 
     ai_result = await agent.process(user_id, transaction_payload)
 
-    final_category = category if category else ai_result.category
+    final_category = ai_result.category or parsed_category or "other"
     spend_class = ai_result.spend_class
     spend_class_confidence = (
         str(ai_result.spend_class_confidence)

@@ -557,7 +557,7 @@ export default function HomeScreen() {
             transactions={transactions}
             budgetPercentage={budgetPercentage}
             primaryCurrency={userCurrency}
-            onViewTransaction={(t) => router.push('/transactions')}
+            onViewTransaction={(t) => router.push({ pathname: '/edit-transaction', params: { id: t.id } } as any)}
           />
         </View>
 

@@ -35,7 +35,6 @@ export default function AddExpenseScreen() {
   const { getGridItemWidth, isSmall } = useResponsive();
   const [amount, setAmount] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [spendClass, setSpendClass] = useState<'need' | 'want' | 'luxury' | null>(null);
 
   const categoryItemWidth = getGridItemWidth(4, 8, 16);
   const [note, setNote] = useState('');
@@ -97,7 +96,6 @@ export default function AddExpenseScreen() {
         category: selectedCategory,
         note: note,
         source: 'manual',
-        spend_class: spendClass || undefined,
       });
       // Emit event for instant updates across all screens
       eventBus.emit(Events.TRANSACTION_ADDED);
@@ -207,33 +205,6 @@ export default function AddExpenseScreen() {
               multiline
               maxLength={200}
             />
-          </View>
-
-          {/* Need/Want/Luxury */}
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Need / Want / Luxury (Optional)</Text>
-            <View style={styles.flagsRow}>
-              {(['need', 'want', 'luxury'] as const).map((value) => (
-                <TouchableOpacity
-                  key={value}
-                  style={[
-                    styles.flagChip,
-                    spendClass === value && styles.flagChipActive,
-                  ]}
-                  onPress={() => setSpendClass(value)}
-                >
-                  <Text style={[
-                    styles.flagChipText,
-                    spendClass === value && styles.flagChipTextActive,
-                  ]}>
-                    {value.toUpperCase()}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-              <TouchableOpacity style={styles.flagChip} onPress={() => setSpendClass(null)}>
-                <Text style={styles.flagChipText}>CLEAR</Text>
-              </TouchableOpacity>
-            </View>
           </View>
 
           {/* Save Button */}
@@ -379,32 +350,6 @@ const styles = StyleSheet.create({
     minHeight: 60,
     borderWidth: 1,
     borderColor: Colors.gray200,
-  },
-  flagsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.sm,
-  },
-  flagChip: {
-    backgroundColor: Colors.gray50,
-    borderRadius: BorderRadius.full,
-    borderWidth: 1,
-    borderColor: Colors.gray200,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-  },
-  flagChipActive: {
-    backgroundColor: Colors.primary + '15',
-    borderColor: Colors.primary,
-  },
-  flagChipText: {
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.semibold,
-    color: Colors.textSecondary,
-    letterSpacing: 0.3,
-  },
-  flagChipTextActive: {
-    color: Colors.primary,
   },
   saveButton: {
     marginTop: Spacing.md,

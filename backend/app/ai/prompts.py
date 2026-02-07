@@ -355,6 +355,7 @@ Respond ONLY with valid JSON:
 def build_chat_system_prompt(user_context: Dict[str, Any]) -> str:
     """Build system prompt for chat with user context."""
     profile = user_context.get("profile", {})
+    financial = profile.get("financial", {}) if isinstance(profile, dict) else {}
     patterns = user_context.get("patterns", {})
     goals = user_context.get("goals", [])
     memory = user_context.get("memory", {})
@@ -384,6 +385,8 @@ def build_chat_system_prompt(user_context: Dict[str, Any]) -> str:
 ## User Context
 
 PROFILE: {json.dumps(profile, indent=2) if profile else "New user"}
+
+FINANCIAL SNAPSHOT: {json.dumps(financial, indent=2) if financial else "Not set"}
 
 PATTERNS: {json.dumps(patterns, indent=2) if patterns else "No patterns yet"}
 
@@ -469,6 +472,7 @@ def build_spending_classification_prompt(
     personality = profile.get("financial_personality", {}) if isinstance(profile, dict) else {}
     location = profile.get("location", {}) if isinstance(profile, dict) else {}
     preferences = profile.get("preferences", {}) if isinstance(profile, dict) else {}
+    financial = profile.get("financial", {}) if isinstance(profile, dict) else {}
     currency_code = get_user_currency_code(user_context)
     currency_symbol = get_currency_symbol(currency_code)
 
@@ -487,6 +491,7 @@ def build_spending_classification_prompt(
 - Financial personality: {json.dumps(personality, ensure_ascii=True)}
 - Location context: {json.dumps(location, ensure_ascii=True)}
 - Preferences: {json.dumps(preferences, ensure_ascii=True)}
+- Financial snapshot: {json.dumps(financial, ensure_ascii=True)}
 
 ## Classification Rules
 - Need: essential living, health, work-critical, unavoidable obligations
@@ -498,6 +503,7 @@ def build_spending_classification_prompt(
 - If spending pattern shows recurring discretionary overspend in this area, shift toward luxury
 - If active goals are at risk, classify borderline discretionary items more strictly
 - Consider local cost context from location data (what is normal in that locality)
+- If monthly budget utilization is high relative to monthly salary, classify borderline items more strictly
 
 Respond ONLY with valid JSON:
 {{
