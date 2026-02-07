@@ -36,7 +36,7 @@ function CustomTabBar({ state, navigation }: TabBarProps) {
           onPress={() => router.push('/chat' as any)}
           activeOpacity={0.8}
         >
-          <Ionicons name="chatbubble-ellipses" size={22} color={Colors.white} />
+          <Ionicons name="chatbubble-ellipses" size={26} color={Colors.white} />
         </TouchableOpacity>
       )}
 
@@ -207,9 +207,9 @@ const styles = StyleSheet.create({
   floatingChatButton: {
     position: 'absolute',
     right: Spacing.lg,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: Colors.primary,
     alignItems: 'center',
     justifyContent: 'center',

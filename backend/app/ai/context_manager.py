@@ -381,12 +381,17 @@ class ContextManager:
     
     async def save_goals(self, user_id: str, goals: List[Dict[str, Any]]) -> None:
         """Save/replace all active goals from mobile sync."""
+        from sqlalchemy.orm.attributes import flag_modified
+        
         user = self._get_user(user_id)
         if user:
             if not user.goals:
                 user.goals = {}
             user.goals["active_goals"] = goals
+            # Flag the JSONB field as modified so SQLAlchemy detects the change
+            flag_modified(user, "goals")
             self.db.commit()
+            print(f"[ContextManager] Saved {len(goals)} goals for user {user_id}")
 
     # =========================================================================
     # TRANSACTION QUERIES (for chat)
@@ -631,8 +636,9 @@ class ContextManager:
         spending = await self.get_spending_summary(user_id, "month")
         monthly_expenses = spending.get("total", 0)
         
-        # Calculate savings
-        monthly_savings = max(0, monthly_salary - monthly_expenses)
+        # Calculate savings based on BUDGET (planned spending), not actual expenses
+        # This gives users their expected savings pool for goal allocation
+        monthly_savings = max(0, monthly_salary - monthly_budget) if monthly_budget > 0 else monthly_salary
         
         # Calculate budget usage
         budget_used_percentage = 0
@@ -658,17 +664,22 @@ class ContextManager:
         """
         Calculate real-time progress for all user goals.
         
-        Uses:
-        - Monthly savings (salary - expenses)
-        - Goal priorities to distribute savings
-        - Target amounts and dates
+        Priority-First Allocation:
+        - Higher priority goals get FULL funding first
+        - Lower priority goals get reduced allocation when funds are short
+        - Example: If P1 needs ₹500 and P2 needs ₹300 but only ₹600 available,
+          P1 gets ₹500, P2 gets remaining ₹100
         
         Returns:
-            Dict with savings info and list of goals with progress details
+            Dict with savings info, allocation matrix, and goals with progress
         """
+        from datetime import datetime
+        
         # Get savings calculation
         savings_data = await self.calculate_monthly_savings(user_id)
         monthly_savings = savings_data.get("monthly_savings", 0)
+        monthly_budget = savings_data.get("monthly_budget", 0)
+        monthly_expenses = savings_data.get("monthly_expenses", 0)
         
         # Get user goals
         goals = await self.load_goals(user_id)
@@ -677,22 +688,25 @@ class ContextManager:
             return {
                 **savings_data,
                 "goals": [],
+                "allocation_matrix": {
+                    "total_needed": 0,
+                    "total_available": monthly_savings,
+                    "shortfall": 0,
+                    "budget_exceeded": monthly_expenses > monthly_budget if monthly_budget > 0 else False,
+                },
                 "total_goal_target": 0,
                 "total_current_saved": 0,
             }
         
         # Sort goals by priority (lower number = higher priority)
-        # If no priority set, use order in list
         sorted_goals = sorted(
             goals, 
             key=lambda g: (g.get("priority", 999), goals.index(g))
         )
         
-        # Distribute monthly savings across goals by priority
-        remaining_savings = monthly_savings
-        goal_progress = []
-        total_target = 0
-        total_saved = 0
+        # First pass: Calculate ideal monthly contributions for each goal
+        goal_data = []
+        total_ideal_needed = 0
         
         for goal in sorted_goals:
             goal_id = goal.get("id", "")
@@ -705,33 +719,78 @@ class ContextManager:
             except (ValueError, TypeError):
                 target_amount = 0
             
-            total_target += target_amount
-            
-            # Current saved amount (starts at 0, updated as user tracks)
             current_saved = goal.get("current_saved", 0)
-            total_saved += current_saved
-            
-            # Amount still needed
             amount_needed = max(0, target_amount - current_saved)
             
-            # Monthly contribution from available savings
-            # Higher priority goals get first claim on savings
-            monthly_contribution = min(remaining_savings, amount_needed / 12) if amount_needed > 0 else 0
-            remaining_savings = max(0, remaining_savings - monthly_contribution)
+            # Calculate ideal monthly contribution based on deadline
+            target_date_str = goal.get("target_date")
+            months_to_deadline = 12  # Default if no deadline
+            
+            if target_date_str:
+                try:
+                    target_date = datetime.strptime(target_date_str, "%Y-%m-%d")
+                    now = datetime.now()
+                    months_to_deadline = max(1, (target_date.year - now.year) * 12 + (target_date.month - now.month))
+                except ValueError:
+                    pass
+            
+            ideal_monthly = amount_needed / months_to_deadline if amount_needed > 0 else 0
+            total_ideal_needed += ideal_monthly
+            
+            goal_data.append({
+                "goal": goal,
+                "goal_id": goal_id,
+                "label": label,
+                "target_amount": target_amount,
+                "current_saved": current_saved,
+                "amount_needed": amount_needed,
+                "ideal_monthly": ideal_monthly,
+                "months_to_deadline": months_to_deadline,
+                "target_date_str": target_date_str,
+            })
+        
+        # Calculate allocation matrix
+        shortfall = max(0, total_ideal_needed - monthly_savings)
+        budget_exceeded = monthly_expenses > monthly_budget if monthly_budget > 0 else False
+        
+        # Second pass: Priority-first allocation
+        # Higher priority goals get full funding, lower priority gets what's left
+        remaining_savings = monthly_savings
+        goal_progress = []
+        total_target = 0
+        total_saved = 0
+        
+        for gd in goal_data:
+            goal = gd["goal"]
+            ideal_monthly = gd["ideal_monthly"]
+            amount_needed = gd["amount_needed"]
+            target_amount = gd["target_amount"]
+            current_saved = gd["current_saved"]
+            months_to_deadline = gd["months_to_deadline"]
+            target_date_str = gd["target_date_str"]
+            
+            total_target += target_amount
+            total_saved += current_saved
+            
+            # Allocate: give this goal as much as possible up to its ideal
+            allocated_monthly = min(remaining_savings, ideal_monthly)
+            remaining_savings = max(0, remaining_savings - allocated_monthly)
             
             # Calculate progress percentage
             progress_percentage = 0
             if target_amount > 0:
                 progress_percentage = min(100, (current_saved / target_amount) * 100)
             
-            # Calculate projected completion
+            # Determine if underfunded
+            is_underfunded = allocated_monthly < ideal_monthly and ideal_monthly > 0
+            
+            # Calculate if deadline is at risk
+            deadline_at_risk = False
             projected_completion_date = None
             months_to_complete = None
-            on_track = True
             
-            if amount_needed > 0 and monthly_contribution > 0:
-                months_to_complete = int(amount_needed / monthly_contribution)
-                from datetime import datetime
+            if amount_needed > 0 and allocated_monthly > 0:
+                months_to_complete = int(amount_needed / allocated_monthly)
                 projected_date = datetime.now()
                 projected_date = projected_date.replace(
                     month=(projected_date.month + months_to_complete - 1) % 12 + 1,
@@ -739,34 +798,46 @@ class ContextManager:
                 )
                 projected_completion_date = projected_date.strftime("%Y-%m-%d")
                 
-                # Check if on track for deadline
-                target_date_str = goal.get("target_date")
                 if target_date_str:
                     try:
                         target_date = datetime.strptime(target_date_str, "%Y-%m-%d")
-                        on_track = projected_date <= target_date
+                        deadline_at_risk = projected_date > target_date
                     except ValueError:
                         pass
+            elif amount_needed > 0:
+                # No allocation at all - definitely at risk
+                deadline_at_risk = True if target_date_str else False
             
             goal_progress.append({
-                "id": goal_id,
-                "label": label,
+                "id": gd["goal_id"],
+                "label": gd["label"],
                 "icon": goal.get("icon"),
                 "color": goal.get("color"),
                 "priority": goal.get("priority", 999),
                 "target_amount": target_amount,
-                "target_date": goal.get("target_date"),
+                "target_date": target_date_str,
                 "current_saved": current_saved,
                 "amount_needed": amount_needed,
-                "monthly_contribution": round(monthly_contribution, 2),
+                "ideal_monthly": round(ideal_monthly, 2),
+                "allocated_monthly": round(allocated_monthly, 2),
+                "monthly_contribution": round(allocated_monthly, 2),  # Legacy field
+                "is_underfunded": is_underfunded,
+                "deadline_at_risk": deadline_at_risk,
                 "progress_percentage": round(progress_percentage, 1),
                 "months_to_complete": months_to_complete,
                 "projected_completion_date": projected_completion_date,
-                "on_track": on_track,
+                "on_track": not deadline_at_risk,
             })
         
         return {
             **savings_data,
+            "allocation_matrix": {
+                "total_needed": round(total_ideal_needed, 2),
+                "total_available": round(monthly_savings, 2),
+                "shortfall": round(shortfall, 2),
+                "budget_exceeded": budget_exceeded,
+                "budget_overage": round(monthly_expenses - monthly_budget, 2) if budget_exceeded else 0,
+            },
             "goals": goal_progress,
             "total_goal_target": total_target,
             "total_current_saved": total_saved,

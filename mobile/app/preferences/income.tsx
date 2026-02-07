@@ -5,6 +5,7 @@ import {
     StyleSheet,
     TouchableOpacity,
     ScrollView,
+    TextInput,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -17,14 +18,13 @@ import {
     FontWeight,
     BorderRadius,
 } from '@/constants/theme';
-import { INCOME_RANGES } from '@/constants';
 import { eventBus, Events } from '@/services/eventBus';
 import { api } from '@/services/api';
 
 export default function IncomePreferencesScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
-    const [selectedIncome, setSelectedIncome] = useState<string | null>(null);
+    const [exactIncome, setExactIncome] = useState('');
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
@@ -33,27 +33,20 @@ export default function IncomePreferencesScreen() {
 
     const loadSavedIncome = async () => {
         const saved = await AsyncStorage.getItem('user_income');
-        if (saved) setSelectedIncome(saved);
+        if (saved) setExactIncome(saved);
     };
 
     const saveIncome = async () => {
-        if (!selectedIncome) return;
+        if (!exactIncome) return;
         setSaving(true);
 
         // Save locally
-        await AsyncStorage.setItem('user_income', selectedIncome);
+        await AsyncStorage.setItem('user_income', exactIncome);
 
         // Sync to backend for goal progress calculations
         try {
-            const salaryMap: Record<string, number> = {
-                'below_30k': 25000,
-                '30k_75k': 52500,
-                '75k_150k': 112500,
-                'above_150k': 200000,
-            };
             await api.updateFinancialProfile({
-                salary_range_id: selectedIncome,
-                monthly_salary: salaryMap[selectedIncome] || undefined,
+                monthly_salary: parseInt(exactIncome.replace(/,/g, '')),
             });
         } catch (error) {
             console.warn('Failed to sync income to backend:', error);
@@ -79,42 +72,27 @@ export default function IncomePreferencesScreen() {
                 contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}
             >
                 <Text style={styles.description}>
-                    Select your monthly income range. This helps us provide better insights and budgeting recommendations.
+                    Enter your exact monthly income. This helps calculate precise savings allocations for your goals.
                 </Text>
 
-                <View style={styles.optionsContainer}>
-                    {INCOME_RANGES.map((range) => (
-                        <TouchableOpacity
-                            key={range.id}
-                            style={[
-                                styles.optionCard,
-                                selectedIncome === range.id && styles.optionCardSelected,
-                            ]}
-                            onPress={() => setSelectedIncome(range.id)}
-                        >
-                            <View style={styles.optionContent}>
-                                <Text style={[
-                                    styles.optionLabel,
-                                    selectedIncome === range.id && styles.optionLabelSelected,
-                                ]}>
-                                    {range.label}
-                                </Text>
-                            </View>
-                            {selectedIncome === range.id && (
-                                <View style={styles.checkmark}>
-                                    <Ionicons name="checkmark" size={18} color={Colors.white} />
-                                </View>
-                            )}
-                        </TouchableOpacity>
-                    ))}
+                <View style={styles.inputContainer}>
+                    <Text style={styles.inputLabel}>Monthly Income (₹)</Text>
+                    <TextInput
+                        style={styles.textInput}
+                        placeholder="e.g. 85000"
+                        placeholderTextColor={Colors.gray400}
+                        keyboardType="numeric"
+                        value={exactIncome}
+                        onChangeText={setExactIncome}
+                    />
                 </View>
             </ScrollView>
 
             <View style={[styles.footer, { paddingBottom: insets.bottom + 20 }]}>
                 <TouchableOpacity
-                    style={[styles.saveButton, !selectedIncome && styles.saveButtonDisabled]}
+                    style={[styles.saveButton, !exactIncome && styles.saveButtonDisabled]}
                     onPress={saveIncome}
-                    disabled={!selectedIncome || saving}
+                    disabled={!exactIncome || saving}
                 >
                     <Text style={styles.saveButtonText}>
                         {saving ? 'Saving...' : 'Save Changes'}
@@ -160,40 +138,24 @@ const styles = StyleSheet.create({
         marginBottom: Spacing.xl,
         lineHeight: 22,
     },
-    optionsContainer: {
-        gap: Spacing.md,
+    inputContainer: {
+        marginBottom: Spacing.lg,
     },
-    optionCard: {
-        flexDirection: 'row',
-        alignItems: 'center',
+    inputLabel: {
+        fontSize: FontSize.sm,
+        fontWeight: FontWeight.semibold,
+        color: Colors.textSecondary,
+        marginBottom: Spacing.sm,
+    },
+    textInput: {
         backgroundColor: Colors.surface,
         borderRadius: BorderRadius.lg,
         padding: Spacing.lg,
-        borderWidth: 2,
-        borderColor: Colors.gray200,
-    },
-    optionCardSelected: {
-        borderColor: Colors.primary,
-        backgroundColor: Colors.primary + '08',
-    },
-    optionContent: {
-        flex: 1,
-    },
-    optionLabel: {
-        fontSize: FontSize.md,
-        fontWeight: FontWeight.semibold,
+        fontSize: FontSize.lg,
+        fontWeight: FontWeight.bold,
         color: Colors.textPrimary,
-    },
-    optionLabelSelected: {
-        color: Colors.primary,
-    },
-    checkmark: {
-        width: 28,
-        height: 28,
-        borderRadius: 14,
-        backgroundColor: Colors.primary,
-        alignItems: 'center',
-        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: Colors.gray200,
     },
     footer: {
         padding: Spacing.lg,
@@ -216,3 +178,4 @@ const styles = StyleSheet.create({
         color: Colors.white,
     },
 });
+

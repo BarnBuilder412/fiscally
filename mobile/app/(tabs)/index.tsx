@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   RefreshControl,
   Dimensions,
+  Image,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, Redirect, useFocusEffect } from 'expo-router';
@@ -94,6 +95,7 @@ const AgenticCoachCard = ({
   onAskCoach: () => void;
 }) => {
   const [currentTip, setCurrentTip] = useState({ message: '', emoji: '💡' });
+  const [hasInitialized, setHasInitialized] = useState(false);
 
   useEffect(() => {
     const tips = [];
@@ -165,12 +167,13 @@ const AgenticCoachCard = ({
       tips.push({ message: insights.tip, emoji: '🤖' });
     }
 
-    // Pick a random tip
-    if (tips.length > 0) {
+    // Pick a tip - only on first load or when significant data changes
+    if (tips.length > 0 && !hasInitialized) {
       const randomTip = tips[Math.floor(Math.random() * tips.length)];
       setCurrentTip(randomTip);
+      setHasInitialized(true);
     }
-  }, [budgetPercentage, daysRemaining, transactions, goalData, insights]);
+  }, [hasInitialized]); // Only run once on mount
 
   return (
     <View style={styles.aiCoachCard}>
@@ -215,7 +218,8 @@ export default function HomeScreen() {
     tip?: string;
   } | null>(null);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
+    console.log('[HomeScreen] loadData called');
     try {
       const authenticated = await api.isAuthenticated();
       if (!authenticated) {
@@ -240,9 +244,9 @@ export default function HomeScreen() {
       setTransactions(Array.isArray(txns) ? txns : []);
       setInsights(insightsData);
       setGoalProgress(goalProgressData);
-      console.log('[HomeScreen] Goal Progress API response:', goalProgressData);
+      console.log('[HomeScreen] Goal Progress API response:', JSON.stringify(goalProgressData?.goals?.map(g => g.label)));
       if (goalProgressData?.goals) {
-        console.log('[HomeScreen] Goals from API:', goalProgressData.goals.length, 'goals');
+        console.log('[HomeScreen] Goals from API:', goalProgressData.goals.length, 'goals:', goalProgressData.goals.map(g => g.label).join(', '));
       } else {
         console.log('[HomeScreen] No goals from API, using local fallback');
       }
@@ -259,7 +263,7 @@ export default function HomeScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadData();
@@ -274,6 +278,7 @@ export default function HomeScreen() {
       loadData();
     });
     const unsubPrefs = eventBus.on(Events.PREFERENCES_CHANGED, () => {
+      console.log('[HomeScreen] PREFERENCES_CHANGED event received');
       loadData();
     });
 
@@ -282,11 +287,13 @@ export default function HomeScreen() {
       unsubUpdated();
       unsubPrefs();
     };
-  }, []);
+  }, [loadData]);
 
-  // Also reload on screen focus
+  // Also reload on screen focus - always fetch fresh data
   useFocusEffect(
     useCallback(() => {
+      console.log('[HomeScreen] useFocusEffect triggered - fetching fresh data');
+      // Always fetch fresh data when screen comes into focus
       loadData();
     }, [loadData])
   );
@@ -423,7 +430,10 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.logoText}>FISCALLY</Text>
+        <View style={styles.logoContainer}>
+          <Ionicons name="wallet-outline" size={32} color={Colors.primary} />
+          <Text style={styles.logoText}>FISCALLY</Text>
+        </View>
       </View>
 
       <ScrollView
@@ -480,7 +490,10 @@ export default function HomeScreen() {
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>🎯 Active Goals</Text>
-              <TouchableOpacity onPress={() => router.push('/preferences/goals')}>
+              <TouchableOpacity
+                onPress={() => router.push('/preferences/goals')}
+                style={styles.manageButton}
+              >
                 <Text style={styles.sectionLink}>Manage</Text>
               </TouchableOpacity>
             </View>
@@ -581,6 +594,16 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
     borderBottomWidth: 1,
     borderBottomColor: Colors.primary + '1A',
+  },
+  logoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  logoImage: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
   },
   logoText: {
     fontSize: FontSize.lg,
@@ -706,9 +729,13 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
   },
   sectionLink: {
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.bold,
     color: Colors.primary,
+  },
+  manageButton: {
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
   },
   // Goals
   goalsContainer: {
@@ -831,18 +858,18 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.sm,
   },
   aiCoachTitle: {
-    fontSize: FontSize.md,
+    fontSize: FontSize.lg,
     fontWeight: FontWeight.bold,
     color: Colors.white,
   },
   aiCoachEmoji: {
-    fontSize: 20,
+    fontSize: 24,
   },
   aiCoachText: {
-    fontSize: FontSize.sm,
+    fontSize: FontSize.md,
     color: Colors.white,
     opacity: 0.9,
-    lineHeight: 20,
+    lineHeight: 24,
     marginBottom: Spacing.md,
   },
   aiCoachButton: {
@@ -856,7 +883,7 @@ const styles = StyleSheet.create({
     gap: Spacing.xs,
   },
   aiCoachButtonText: {
-    fontSize: FontSize.sm,
+    fontSize: FontSize.md,
     fontWeight: FontWeight.semibold,
     color: Colors.primary,
   },

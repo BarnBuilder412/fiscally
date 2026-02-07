@@ -80,11 +80,11 @@ export default function GoalsPreferencesScreen() {
     const saveGoals = async () => {
         setSaving(true);
 
-        // Save locally
+        // Save locally first
         await AsyncStorage.setItem('user_goals', JSON.stringify(selectedGoals));
         await AsyncStorage.setItem('user_goal_details', JSON.stringify(goalDetails));
 
-        // Sync to backend for goal progress tracking
+        // Sync to backend for goal progress tracking - wait for completion
         try {
             const goalsToSync = selectedGoals.map((goalId, index) => {
                 const details = goalDetails[goalId] || {};
@@ -97,14 +97,20 @@ export default function GoalsPreferencesScreen() {
                     priority: index + 1, // Priority based on order: 1 = highest priority
                 };
             });
-            await api.syncGoals(goalsToSync);
+            const result = await api.syncGoals(goalsToSync);
+            console.log('[GoalsScreen] Backend sync successful, synced:', result.synced_count);
         } catch (error) {
-            console.warn('Failed to sync goals to backend:', error);
+            console.warn('[GoalsScreen] Failed to sync goals to backend:', error);
         }
 
+        console.log('[GoalsScreen] Emitting PREFERENCES_CHANGED event');
         eventBus.emit(Events.PREFERENCES_CHANGED);
+
         setSaving(false);
-        router.back();
+        // Give time for the event to propagate and data to refresh before navigating back
+        setTimeout(() => {
+            router.back();
+        }, 300);
     };
 
     return (

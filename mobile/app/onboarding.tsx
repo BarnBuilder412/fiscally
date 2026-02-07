@@ -25,7 +25,6 @@ import {
   Shadows,
 } from '@/constants/theme';
 import { Button } from '@/components';
-import { INCOME_RANGES } from '@/constants';
 import { api } from '@/services/api';
 
 const { width } = Dimensions.get('window');
@@ -54,8 +53,8 @@ const SAVINGS_GOALS = [
 export default function OnboardingScreen() {
   const router = useRouter();
   const [step, setStep] = useState<Step>('welcome');
-  const [selectedIncome, setSelectedIncome] = useState<string | null>(null);
-  const [selectedBudget, setSelectedBudget] = useState<string | null>(null);
+  const [exactIncome, setExactIncome] = useState('');
+  const [exactBudget, setExactBudget] = useState('');
   const [selectedGoals, setSelectedGoals] = useState<string[]>([]);
   const [goalDetails, setGoalDetails] = useState<Record<string, { amount: string, date: string }>>({});
   const [currentGoalIndex, setCurrentGoalIndex] = useState(0);
@@ -143,10 +142,26 @@ export default function OnboardingScreen() {
   const handleComplete = async () => {
     try {
       await AsyncStorage.setItem('is_onboarded', 'true');
-      // Save budget and goals locally
-      if (selectedBudget) {
-        await AsyncStorage.setItem('user_budget', selectedBudget);
+
+      // Save exact income and budget
+      if (exactIncome) {
+        await AsyncStorage.setItem('user_income', exactIncome);
       }
+      if (exactBudget) {
+        await AsyncStorage.setItem('user_budget', exactBudget);
+      }
+
+      // Sync financial profile to backend
+      try {
+        await api.updateFinancialProfile({
+          monthly_salary: exactIncome ? parseInt(exactIncome.replace(/,/g, '')) : undefined,
+          monthly_budget: exactBudget ? parseInt(exactBudget.replace(/,/g, '')) : undefined,
+        });
+        console.log('Financial profile synced');
+      } catch (syncError) {
+        console.warn('Failed to sync financial profile:', syncError);
+      }
+
       if (selectedGoals.length > 0) {
         await AsyncStorage.setItem('user_goals', JSON.stringify(selectedGoals));
 
@@ -166,7 +181,6 @@ export default function OnboardingScreen() {
           console.log('Goals synced to backend');
         } catch (syncError) {
           console.warn('Failed to sync goals to backend:', syncError);
-          // Continue anyway - goals saved locally
         }
       }
       router.replace('/(tabs)');
@@ -267,36 +281,28 @@ export default function OnboardingScreen() {
 
       <Text style={styles.stepTitle}>What's your monthly income?</Text>
       <Text style={styles.stepSubtitle}>
-        This helps our AI calibrate your spending limits and personal savings goals.
+        Enter your exact monthly income for precise savings calculations.
       </Text>
 
-      <View style={styles.optionsContainer}>
-        {INCOME_RANGES.map((range) => (
-          <TouchableOpacity
-            key={range.id}
-            style={[
-              styles.optionCard,
-              selectedIncome === range.id && styles.optionCardSelected,
-            ]}
-            onPress={() => setSelectedIncome(range.id)}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.optionCardText}>{range.label}</Text>
-            <View style={[
-              styles.radioButton,
-              selectedIncome === range.id && styles.radioButtonSelected
-            ]}>
-              {selectedIncome === range.id && <View style={styles.radioButtonInner} />}
-            </View>
-          </TouchableOpacity>
-        ))}
+      <View style={styles.formContainer}>
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Monthly Income (₹)</Text>
+          <TextInput
+            style={styles.textInput}
+            placeholder="e.g. 85000"
+            placeholderTextColor={Colors.gray400}
+            keyboardType="numeric"
+            value={exactIncome}
+            onChangeText={setExactIncome}
+          />
+        </View>
       </View>
 
       <View style={styles.footer}>
         <Button
           title="Continue →"
           onPress={handleNext}
-          disabled={!selectedIncome}
+          disabled={!exactIncome}
           size="lg"
           style={styles.footerButton}
         />
@@ -327,36 +333,36 @@ export default function OnboardingScreen() {
 
       <Text style={styles.stepTitle}>Set your monthly budget</Text>
       <Text style={styles.stepSubtitle}>
-        How much do you want to spend each month? We'll help you stay on track.
+        Enter how much you plan to spend each month. Savings = Income - Budget.
       </Text>
 
-      <View style={styles.optionsContainer}>
-        {BUDGET_RANGES.map((range) => (
-          <TouchableOpacity
-            key={range.id}
-            style={[
-              styles.optionCard,
-              selectedBudget === range.id && styles.optionCardSelected,
-            ]}
-            onPress={() => setSelectedBudget(range.id)}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.optionCardText}>{range.label}</Text>
-            <View style={[
-              styles.radioButton,
-              selectedBudget === range.id && styles.radioButtonSelected
-            ]}>
-              {selectedBudget === range.id && <View style={styles.radioButtonInner} />}
-            </View>
-          </TouchableOpacity>
-        ))}
+      <View style={styles.formContainer}>
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Monthly Budget (₹)</Text>
+          <TextInput
+            style={styles.textInput}
+            placeholder="e.g. 50000"
+            placeholderTextColor={Colors.gray400}
+            keyboardType="numeric"
+            value={exactBudget}
+            onChangeText={setExactBudget}
+          />
+        </View>
+        {exactIncome && exactBudget && (
+          <View style={styles.savingsPreview}>
+            <Text style={styles.savingsPreviewLabel}>Expected Monthly Savings:</Text>
+            <Text style={styles.savingsPreviewValue}>
+              ₹{Math.max(0, parseInt(exactIncome.replace(/,/g, '')) - parseInt(exactBudget.replace(/,/g, ''))).toLocaleString('en-IN')}
+            </Text>
+          </View>
+        )}
       </View>
 
       <View style={styles.footer}>
         <Button
           title="Continue →"
           onPress={handleNext}
-          disabled={!selectedBudget}
+          disabled={!exactBudget}
           size="lg"
           style={styles.footerButton}
         />
@@ -1094,5 +1100,22 @@ const styles = StyleSheet.create({
   },
   dotActive: {
     backgroundColor: Colors.primary,
+  },
+  savingsPreview: {
+    marginTop: Spacing.lg,
+    padding: Spacing.md,
+    backgroundColor: Colors.primary + '10',
+    borderRadius: BorderRadius.lg,
+    alignItems: 'center',
+  },
+  savingsPreviewLabel: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.xs,
+  },
+  savingsPreviewValue: {
+    fontSize: FontSize.xl,
+    fontWeight: FontWeight.bold,
+    color: Colors.primary,
   },
 });

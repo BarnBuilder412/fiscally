@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Platform,
   ScrollView,
   useWindowDimensions,
+  Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -37,6 +38,17 @@ export default function AddExpenseScreen() {
   const categoryItemWidth = getGridItemWidth(4, 8, 16);
   const [note, setNote] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  // Track keyboard visibility
+  useEffect(() => {
+    const showSub = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const handleCategorySelect = (categoryId: string) => {
     if (Platform.OS !== 'web') {
@@ -204,6 +216,18 @@ export default function AddExpenseScreen() {
             </View>
           </TouchableOpacity>
         </ScrollView>
+
+        {/* Floating Voice Button - Only visible when keyboard is active */}
+        {keyboardVisible && (
+          <TouchableOpacity
+            style={styles.floatingVoiceButton}
+            onPress={handleVoicePress}
+            activeOpacity={0.9}
+          >
+            <Ionicons name="mic" size={24} color={Colors.white} />
+            <Text style={styles.floatingVoiceText}>Speak</Text>
+          </TouchableOpacity>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -338,5 +362,25 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     color: Colors.textSecondary,
     marginTop: 2,
+  },
+  floatingVoiceButton: {
+    position: 'absolute',
+    bottom: 337,
+    right: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.primary,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.full,
+    gap: Spacing.sm,
+    ...Shadows.lg,
+    zIndex: 100,
+    elevation: 10,
+  },
+  floatingVoiceText: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: Colors.white,
   },
 });
