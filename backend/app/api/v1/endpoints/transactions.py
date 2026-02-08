@@ -26,10 +26,12 @@ from app.schemas.transaction import (
     ReceiptTransactionResponse,
     SmsBatchIngestRequest,
     SmsBatchIngestResponse,
+    VALID_CATEGORIES,
 )
 from app.ai.agents import TransactionAgent
 from app.ai.context_manager import ContextManager
 from app.ai.feedback import log_category_correction, log_spend_class_correction
+from app.services.currency_conversion import convert_amount, CurrencyConversionError
 
 router = APIRouter()
 
@@ -57,6 +59,32 @@ def _compute_sms_dedupe_key(
         ]
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _infer_category_from_receipt_keywords(
+    merchant: Optional[str],
+    line_items: list[str],
+) -> Optional[str]:
+    """Heuristic category fallback for receipt flows when AI returns 'other'."""
+    corpus = f"{merchant or ''} {' '.join(line_items)}".lower()
+    if not corpus.strip():
+        return None
+
+    rules = [
+        ("food_delivery", ["swiggy", "zomato", "domino", "pizza", "delivery"]),
+        ("restaurant", ["restaurant", "cafe", "coffee", "dine", "meal", "burger", "kfc", "mcdonald"]),
+        ("groceries", ["grocery", "supermarket", "mart", "vegetable", "milk", "bigbasket", "dmart"]),
+        ("transport", ["uber", "ola", "rapido", "metro", "fuel", "petrol", "diesel", "taxi"]),
+        ("shopping", ["amazon", "flipkart", "myntra", "store", "fashion", "electronics", "mall"]),
+        ("bills", ["electricity", "water", "broadband", "internet", "recharge", "utility"]),
+        ("health", ["pharmacy", "hospital", "clinic", "medicine", "medic"]),
+        ("education", ["school", "college", "course", "tuition", "bookstore", "exam"]),
+        ("entertainment", ["movie", "cinema", "netflix", "spotify", "game", "theatre"]),
+    ]
+    for category, keywords in rules:
+        if any(keyword in corpus for keyword in keywords):
+            return category
+    return None
 
 
 @router.post("", response_model=TransactionResponse, status_code=status.HTTP_201_CREATED)
@@ -745,22 +773,69 @@ async def parse_receipt_transaction(
     parsed_category = parsed.get("category")
     if isinstance(parsed_category, str):
         parsed_category = parsed_category.strip().lower()
+        if parsed_category not in VALID_CATEGORIES:
+            parsed_category = None
     else:
         parsed_category = None
-    parsed_currency = (parsed.get("currency") or (
-        user_context.get("profile", {}).get("identity", {}).get("currency") or "INR"
-    )).upper()
+    primary_currency = (
+        user_context.get("profile", {}).get("identity", {}).get("currency")
+        or user_context.get("profile", {}).get("currency")
+        or "INR"
+    ).upper()
+    parsed_currency = (parsed.get("currency") or primary_currency).upper()
+
+    conversion_reason: Optional[str] = None
+    if parsed_currency != primary_currency:
+        try:
+            converted_amount, fx_rate = await convert_amount(parsed_amount, parsed_currency, primary_currency)
+            parsed_amount = converted_amount
+            conversion_reason = (
+                f"Converted from {parsed_currency} to {primary_currency} at live market rate "
+                f"({fx_rate:.4f})."
+            )
+            parsed_currency = primary_currency
+        except CurrencyConversionError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Unable to convert receipt amount from {parsed_currency} to {primary_currency}: {exc}",
+            ) from exc
+
+    line_items = parsed.get("line_items") or []
+    line_item_names = []
+    if isinstance(line_items, list):
+        for item in line_items[:4]:
+            if isinstance(item, dict):
+                name = item.get("name")
+                if isinstance(name, str) and name.strip():
+                    line_item_names.append(name.strip())
+    merchant_signal = (merchant or "").strip()
+    if line_item_names:
+        joined_items = ", ".join(line_item_names)
+        merchant_signal = f"{merchant_signal} | Items: {joined_items}".strip(" |")
 
     transaction_payload = {
         "amount": parsed_amount,
-        "merchant": merchant,
-        "category": parsed_category or "other",
+        "merchant": merchant_signal or merchant,
+        # Force agent categorization; parsed category is used as fallback only.
+        "category": None,
         "timestamp": parsed.get("transaction_at") or datetime.utcnow().isoformat(),
+        "receipt_category_hint": parsed_category,
     }
 
     ai_result = await agent.process(user_id, transaction_payload)
 
-    final_category = ai_result.category or parsed_category or "other"
+    ai_category = (ai_result.category or "").strip().lower()
+    if ai_category not in VALID_CATEGORIES:
+        ai_category = "other"
+    heuristic_category = _infer_category_from_receipt_keywords(merchant_signal or merchant, line_item_names)
+    if ai_category != "other":
+        final_category = ai_category
+    elif parsed_category and parsed_category != "other":
+        final_category = parsed_category
+    elif heuristic_category:
+        final_category = heuristic_category
+    else:
+        final_category = "other"
     spend_class = ai_result.spend_class
     spend_class_confidence = (
         str(ai_result.spend_class_confidence)
@@ -800,6 +875,9 @@ async def parse_receipt_transaction(
     )
 
     if duplicate_txn:
+        duplicate_reason = "Possible duplicate receipt detected. Reused existing transaction."
+        if conversion_reason:
+            duplicate_reason = f"{conversion_reason} {duplicate_reason}"
         return ReceiptTransactionResponse(
             amount=parsed_amount,
             currency=parsed_currency,
@@ -809,7 +887,7 @@ async def parse_receipt_transaction(
             confidence=float(parsed.get("confidence", 0.0)),
             needs_review=bool(parsed.get("needs_review", False)),
             duplicate_suspected=True,
-            reason="Possible duplicate receipt detected. Reused existing transaction.",
+            reason=duplicate_reason,
             transaction=duplicate_txn,
             extracted_items=parsed.get("line_items") or [],
         )
@@ -835,6 +913,10 @@ async def parse_receipt_transaction(
     db.commit()
     db.refresh(created)
 
+    response_reason = parsed.get("reason")
+    if conversion_reason:
+        response_reason = f"{conversion_reason} {response_reason}".strip() if response_reason else conversion_reason
+
     return ReceiptTransactionResponse(
         amount=parsed_amount,
         currency=parsed_currency,
@@ -844,7 +926,7 @@ async def parse_receipt_transaction(
         confidence=float(parsed.get("confidence", 0.0)),
         needs_review=bool(parsed.get("needs_review", False)),
         duplicate_suspected=False,
-        reason=parsed.get("reason"),
+        reason=response_reason,
         transaction=created,
         extracted_items=parsed.get("line_items") or [],
     )

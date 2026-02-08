@@ -8,7 +8,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  useWindowDimensions,
   Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -32,7 +31,7 @@ import { getCurrencySymbol } from '@/utils/currency';
 
 export default function AddExpenseScreen() {
   const router = useRouter();
-  const { getGridItemWidth, isSmall } = useResponsive();
+  const { getGridItemWidth } = useResponsive();
   const [amount, setAmount] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
@@ -119,6 +118,7 @@ export default function AddExpenseScreen() {
     const numericValue = value.replace(/[^0-9]/g, '');
     return numericValue;
   };
+  const hasManualAmount = amount.trim().length > 0;
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
@@ -155,101 +155,93 @@ export default function AddExpenseScreen() {
             />
           </View>
 
-          {/* Category Selection */}
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Category</Text>
-            <View style={styles.categoriesGrid}>
-              {CATEGORIES.map((category) => (
-                <TouchableOpacity
-                  key={category.id}
-                  style={[
-                    styles.categoryButton,
-                    { width: categoryItemWidth, height: categoryItemWidth },
-                    selectedCategory === category.id && {
-                      borderColor: getCategoryColor(category.id),
-                      borderWidth: 2,
-                      backgroundColor: getCategoryColor(category.id) + '10',
-                    },
-                  ]}
-                  onPress={() => handleCategorySelect(category.id)}
-                >
-                  <Ionicons
-                    name={category.icon}
-                    size={24}
-                    color={selectedCategory === category.id ? getCategoryColor(category.id) : Colors.gray500}
-                  />
-                  <Text
-                    style={[
-                      styles.categoryName,
-                      selectedCategory === category.id && {
-                        color: getCategoryColor(category.id),
-                        fontWeight: FontWeight.semibold,
-                      },
-                    ]}
-                  >
-                    {category.name}
-                  </Text>
+          {!hasManualAmount && (
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>Or choose a quick capture mode</Text>
+              <View style={styles.quickActionsRow}>
+                <TouchableOpacity style={styles.quickActionCard} onPress={handleVoicePress}>
+                  <Ionicons name="mic" size={24} color={Colors.primary} />
+                  <Text style={styles.quickActionTitle}>Hold to speak</Text>
+                  <Text style={styles.quickActionSubtitle}>Voice expense entry</Text>
                 </TouchableOpacity>
-              ))}
+                <TouchableOpacity style={styles.quickActionCard} onPress={handleReceiptPress}>
+                  <Ionicons name="camera" size={24} color={Colors.primary} />
+                  <Text style={styles.quickActionTitle}>Upload receipt</Text>
+                  <Text style={styles.quickActionSubtitle}>Photo, camera, or PDF</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
+          )}
 
-          {/* Note Input */}
-          <View style={styles.section}>
-            <TextInput
-              style={styles.noteInput}
-              placeholder="Add note (optional)"
-              placeholderTextColor={Colors.gray400}
-              value={note}
-              onChangeText={setNote}
-              multiline
-              maxLength={200}
-            />
-          </View>
+          {hasManualAmount && (
+            <>
+              {/* Category Selection */}
+              <View style={styles.section}>
+                <Text style={styles.sectionLabel}>Category</Text>
+                <View style={styles.categoriesGrid}>
+                  {CATEGORIES.map((category) => (
+                    <TouchableOpacity
+                      key={category.id}
+                      style={[
+                        styles.categoryButton,
+                        { width: categoryItemWidth, height: categoryItemWidth },
+                        selectedCategory === category.id && {
+                          borderColor: getCategoryColor(category.id),
+                          borderWidth: 2,
+                          backgroundColor: getCategoryColor(category.id) + '10',
+                        },
+                      ]}
+                      onPress={() => handleCategorySelect(category.id)}
+                    >
+                      <Ionicons
+                        name={category.icon}
+                        size={24}
+                        color={selectedCategory === category.id ? getCategoryColor(category.id) : Colors.gray500}
+                      />
+                      <Text
+                        style={[
+                          styles.categoryName,
+                          selectedCategory === category.id && {
+                            color: getCategoryColor(category.id),
+                            fontWeight: FontWeight.semibold,
+                          },
+                        ]}
+                      >
+                        {category.name}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
 
-          {/* Save Button */}
-          <Button
-            title="Add Expense"
-            onPress={handleSave}
-            disabled={!amount || !selectedCategory}
-            loading={isSubmitting}
-            size="lg"
-            style={styles.saveButton}
-          />
+              {/* Note Input */}
+              <View style={styles.section}>
+                <TextInput
+                  style={styles.noteInput}
+                  placeholder="Add note (optional)"
+                  placeholderTextColor={Colors.gray400}
+                  value={note}
+                  onChangeText={setNote}
+                  multiline
+                  maxLength={200}
+                />
+              </View>
 
-          {/* Divider */}
-          <View style={styles.dividerContainer}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>or</Text>
-            <View style={styles.dividerLine} />
-          </View>
-
-          {/* Voice Input */}
-          <TouchableOpacity
-            style={styles.voiceButton}
-            onPress={handleVoicePress}
-          >
-            <Ionicons name="mic" size={24} color={Colors.primary} />
-            <View style={styles.voiceTextContainer}>
-              <Text style={styles.voiceTitle}>Hold to speak</Text>
-              <Text style={styles.voiceSubtitle}>"450 swiggy dinner"</Text>
-            </View>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.voiceButton}
-            onPress={handleReceiptPress}
-          >
-            <Ionicons name="camera" size={24} color={Colors.primary} />
-            <View style={styles.voiceTextContainer}>
-              <Text style={styles.voiceTitle}>Scan receipt / invoice</Text>
-              <Text style={styles.voiceSubtitle}>Camera, image, or PDF</Text>
-            </View>
-          </TouchableOpacity>
+              {/* Save Button */}
+              <Button
+                title="Add Expense"
+                onPress={handleSave}
+                disabled={!amount || !selectedCategory}
+                loading={isSubmitting}
+                size="lg"
+                style={styles.saveButton}
+              />
+            </>
+          )}
         </ScrollView>
 
         {/* Floating Voice Button - Only visible when keyboard is active */}
-        {keyboardVisible && (
+        {keyboardVisible && !hasManualAmount && (
           <TouchableOpacity
             style={styles.floatingVoiceButton}
             onPress={handleVoicePress}
@@ -353,6 +345,35 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     marginTop: Spacing.md,
+  },
+  quickActionsRow: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+  },
+  quickActionCard: {
+    flex: 1,
+    backgroundColor: Colors.primary + '10',
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    borderColor: Colors.primary + '2E',
+    paddingVertical: Spacing.lg,
+    paddingHorizontal: Spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 130,
+  },
+  quickActionTitle: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.semibold,
+    color: Colors.primary,
+    marginTop: Spacing.sm,
+    textAlign: 'center',
+  },
+  quickActionSubtitle: {
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+    marginTop: Spacing.xs,
+    textAlign: 'center',
   },
   dividerContainer: {
     flexDirection: 'row',

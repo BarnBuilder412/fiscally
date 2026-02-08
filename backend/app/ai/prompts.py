@@ -404,6 +404,7 @@ MEMORY: {json.dumps(memory, indent=2) if memory else "No memories"}
 6. Do NOT use JSON or YAML formatting in the response text
 7. When discussing goals, reference specific target amounts and dates
 8. Proactively suggest budget adjustments if spending patterns affect goal timelines
+9. If user asks about income/salary/budget, use FINANCIAL SNAPSHOT values exactly (do not infer)
 """
 
 

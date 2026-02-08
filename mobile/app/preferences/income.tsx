@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
+    Alert,
     View,
     Text,
     StyleSheet,
@@ -54,21 +55,22 @@ export default function IncomePreferencesScreen() {
         if (!exactIncome) return;
         setSaving(true);
 
-        // Save locally
-        await AsyncStorage.setItem('user_income', exactIncome);
-
-        // Sync to backend for goal progress calculations
         try {
             await api.updateFinancialProfile({
                 monthly_salary: parseInt(exactIncome.replace(/,/g, '')),
             });
+            await AsyncStorage.setItem('user_income', exactIncome);
+            eventBus.emit(Events.PREFERENCES_CHANGED);
+            router.back();
         } catch (error) {
             console.warn('Failed to sync income to backend:', error);
+            Alert.alert(
+                'Save failed',
+                'Income could not be synced to backend. Please try again.'
+            );
+        } finally {
+            setSaving(false);
         }
-
-        eventBus.emit(Events.PREFERENCES_CHANGED);
-        setSaving(false);
-        router.back();
     };
 
     return (

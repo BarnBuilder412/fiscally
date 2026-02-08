@@ -386,6 +386,52 @@ class ChatAgent:
         
         symbol = get_currency_symbol(currency_code)
 
+        if any(word in message_lower for word in ["income", "salary", "earn", "earning"]):
+            financial = await self.context.load_financial_profile(user_id)
+            monthly_salary = financial.get("monthly_salary")
+            monthly_budget = financial.get("monthly_budget")
+            salary_text = (
+                f"{symbol}{float(monthly_salary):,.0f}"
+                if isinstance(monthly_salary, (int, float))
+                else "Not set"
+            )
+            budget_text = (
+                f"{symbol}{float(monthly_budget):,.0f}"
+                if isinstance(monthly_budget, (int, float))
+                else "Not set"
+            )
+            data = "\n".join(
+                [
+                    "Financial profile:",
+                    f"- Monthly income: {salary_text}",
+                    f"- Monthly budget: {budget_text}",
+                ]
+            )
+            return data, "Loaded your saved income and budget profile"
+
+        if "budget" in message_lower:
+            financial = await self.context.load_financial_profile(user_id)
+            monthly_budget = financial.get("monthly_budget")
+            monthly_salary = financial.get("monthly_salary")
+            budget_text = (
+                f"{symbol}{float(monthly_budget):,.0f}"
+                if isinstance(monthly_budget, (int, float))
+                else "Not set"
+            )
+            salary_text = (
+                f"{symbol}{float(monthly_salary):,.0f}"
+                if isinstance(monthly_salary, (int, float))
+                else "Not set"
+            )
+            data = "\n".join(
+                [
+                    "Financial profile:",
+                    f"- Monthly budget: {budget_text}",
+                    f"- Monthly income: {salary_text}",
+                ]
+            )
+            return data, "Loaded your saved budget and income profile"
+
         # Detect what data to fetch based on keywords
         if any(word in message_lower for word in ["spent", "spend", "spending", "how much"]):
             summary = await self.context.get_spending_summary(user_id, "month")
@@ -452,6 +498,47 @@ class ChatAgent:
         This is the "search" for chat - querying their own data, not the web.
         """
         message_lower = message.lower()
+        symbol = get_currency_symbol(currency_code)
+
+        if any(word in message_lower for word in ["income", "salary", "earn", "earning"]):
+            financial = await self.context.load_financial_profile(user_id)
+            monthly_salary = financial.get("monthly_salary")
+            monthly_budget = financial.get("monthly_budget")
+            salary_text = (
+                f"{symbol}{float(monthly_salary):,.0f}"
+                if isinstance(monthly_salary, (int, float))
+                else "Not set"
+            )
+            budget_text = (
+                f"{symbol}{float(monthly_budget):,.0f}"
+                if isinstance(monthly_budget, (int, float))
+                else "Not set"
+            )
+            return (
+                "Financial profile:\n"
+                f"- Monthly income: {salary_text}\n"
+                f"- Monthly budget: {budget_text}"
+            )
+
+        if "budget" in message_lower:
+            financial = await self.context.load_financial_profile(user_id)
+            monthly_budget = financial.get("monthly_budget")
+            monthly_salary = financial.get("monthly_salary")
+            budget_text = (
+                f"{symbol}{float(monthly_budget):,.0f}"
+                if isinstance(monthly_budget, (int, float))
+                else "Not set"
+            )
+            salary_text = (
+                f"{symbol}{float(monthly_salary):,.0f}"
+                if isinstance(monthly_salary, (int, float))
+                else "Not set"
+            )
+            return (
+                "Financial profile:\n"
+                f"- Monthly budget: {budget_text}\n"
+                f"- Monthly income: {salary_text}"
+            )
         
         # Detect what data to fetch based on keywords
         if any(word in message_lower for word in ["spent", "spend", "spending", "how much"]):

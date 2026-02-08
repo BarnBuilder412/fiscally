@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
+    Alert,
     View,
     Text,
     StyleSheet,
@@ -70,10 +71,6 @@ export default function BudgetPreferencesScreen() {
         if (!selectedBudget) return;
         setSaving(true);
 
-        // Save locally
-        await AsyncStorage.setItem('user_budget', selectedBudget);
-
-        // Sync to backend for goal progress calculations
         try {
             const budgetMap: Record<string, number> = {
                 'below_20k': 15000,
@@ -86,13 +83,18 @@ export default function BudgetPreferencesScreen() {
                 budget_range_id: selectedBudget,
                 monthly_budget: budgetMap[selectedBudget] || undefined,
             });
+            await AsyncStorage.setItem('user_budget', selectedBudget);
+            eventBus.emit(Events.PREFERENCES_CHANGED);
+            router.back();
         } catch (error) {
             console.warn('Failed to sync budget to backend:', error);
+            Alert.alert(
+                'Save failed',
+                'Budget could not be synced to backend. Please try again.'
+            );
+        } finally {
+            setSaving(false);
         }
-
-        eventBus.emit(Events.PREFERENCES_CHANGED);
-        setSaving(false);
-        router.back();
     };
 
     return (
