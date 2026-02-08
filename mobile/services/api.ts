@@ -313,6 +313,12 @@ class ApiClient {
     duplicate_suspected?: boolean;
     reason?: string;
     transaction?: Transaction;
+    extracted_items?: Array<{
+      name?: string;
+      quantity?: number;
+      amount?: number;
+      total?: number;
+    }>;
   }> {
     const formData = new FormData();
     // @ts-ignore - React Native FormData file type

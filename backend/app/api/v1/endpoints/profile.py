@@ -1,10 +1,12 @@
 """
 Profile endpoints for user context management.
 """
+from copy import deepcopy
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.api.deps import get_db, CurrentUser
 from app.schemas.user import UserResponse, ProfileUpdate
@@ -73,7 +75,7 @@ async def update_profile(
     """
     if request.profile is not None:
         # Merge with existing profile (don't overwrite entirely)
-        existing_profile = current_user.profile or {}
+        existing_profile = deepcopy(current_user.profile or {})
         
         # Deep merge for nested keys
         for key, value in request.profile.items():
@@ -86,6 +88,7 @@ async def update_profile(
         existing_profile = apply_profile_location_defaults(existing_profile)
         
         current_user.profile = existing_profile
+        flag_modified(current_user, "profile")
         db.commit()
         db.refresh(current_user)
     

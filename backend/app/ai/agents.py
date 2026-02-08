@@ -239,6 +239,62 @@ class ChatAgent:
     def __init__(self, context_manager: ContextManager):
         self.context = context_manager
         self.llm = llm_client
+
+    @staticmethod
+    def _safe_number(value: Any) -> Optional[float]:
+        """Coerce numeric-like values to float for stable formatting."""
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            cleaned = value.replace(",", "").strip()
+            if not cleaned:
+                return None
+            try:
+                return float(cleaned)
+            except ValueError:
+                return None
+        return None
+
+    @staticmethod
+    def _is_financial_snapshot_query(message: str) -> bool:
+        message_lower = message.lower()
+        return any(
+            keyword in message_lower
+            for keyword in ("income", "salary", "earn", "earning", "budget")
+        )
+
+    async def _build_financial_snapshot_response(
+        self,
+        user_id: str,
+        currency_code: str,
+    ) -> str:
+        """
+        Build a deterministic answer for income/budget questions from DB profile.
+        This avoids stale values from conversational memory.
+        """
+        symbol = get_currency_symbol(currency_code)
+        financial = await self.context.load_financial_profile(user_id)
+
+        monthly_salary = self._safe_number(financial.get("monthly_salary"))
+        monthly_budget = self._safe_number(financial.get("monthly_budget"))
+
+        if monthly_salary is None and monthly_budget is None:
+            return (
+                "I don't have your income or budget saved yet. "
+                "Update Monthly Income and Monthly Budget in Profile, then ask again."
+            )
+
+        lines: List[str] = []
+        if monthly_salary is not None:
+            lines.append(f"Your monthly income is {symbol}{monthly_salary:,.0f}.")
+        if monthly_budget is not None:
+            lines.append(f"Your monthly budget is {symbol}{monthly_budget:,.0f}.")
+        if monthly_salary is not None and monthly_budget is not None:
+            remaining = monthly_salary - monthly_budget
+            lines.append(f"Planned monthly buffer is {symbol}{remaining:,.0f}.")
+        return " ".join(lines)
     
     @opik.track(name="chat_agent_handle", tags=["agent", "chat", "conversation"])
     async def handle(
@@ -293,16 +349,40 @@ class ChatAgent:
                 "content": "Detected spending patterns in your transaction history"
             })
         
-        # Step 2: Query relevant transaction data based on message
-        reasoning_steps.append({
-            "step_type": "querying",
-            "content": "Searching your transactions for relevant data"
-        })
         currency_code = (
             profile.get("identity", {}).get("currency")
             or profile.get("currency")
             or "INR"
         )
+
+        if self._is_financial_snapshot_query(message):
+            reasoning_steps.append({
+                "step_type": "querying",
+                "content": "Reading latest income and budget directly from your profile in database"
+            })
+            response = await self._build_financial_snapshot_response(
+                user_id=user_id,
+                currency_code=currency_code,
+            )
+            reasoning_steps.append({
+                "step_type": "insight",
+                "content": "Returned exact financial snapshot values from your saved profile"
+            })
+            from .feedback import get_current_trace_id
+            trace_id = get_current_trace_id()
+            return ChatResponse(
+                response=response,
+                memory_updated=False,
+                new_fact=None,
+                trace_id=trace_id,
+                reasoning_steps=reasoning_steps,
+            )
+
+        # Step 2: Query relevant transaction data based on message
+        reasoning_steps.append({
+            "step_type": "querying",
+            "content": "Searching your transactions for relevant data"
+        })
 
         transaction_data, query_info = await self._get_relevant_data_with_info(
             user_id,

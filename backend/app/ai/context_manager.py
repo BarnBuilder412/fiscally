@@ -95,7 +95,12 @@ class ContextManager:
     def _get_user(self, user_id: str):
         """Get user from DB by ID."""
         from app.models.user import User
-        return self.db.query(User).filter(User.id == user_id).first()
+        return (
+            self.db.query(User)
+            .populate_existing()
+            .filter(User.id == user_id)
+            .first()
+        )
 
     @staticmethod
     def _parse_amount_value(raw: Any) -> float:
@@ -121,6 +126,9 @@ class ContextManager:
         Returns dict with: profile, patterns, goals, memory, insights
         """
         profile = await self.load_profile(user_id)
+        financial = await self.load_financial_profile(user_id)
+        if isinstance(profile, dict):
+            profile["financial"] = financial
         patterns = await self.load_patterns(user_id)
         goals = await self.load_goals(user_id)
         memory = await self.load_memory(user_id)
