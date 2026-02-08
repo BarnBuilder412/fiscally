@@ -219,7 +219,7 @@ All endpoints follow `/api/v1/` convention:
 - `POST /api/v1/transactions/sms/batch` - Batch ingest parsed Android SMS transactions with duplicate suppression
 - `PATCH /api/v1/transactions/{id}` - Update transaction fields
 - `DELETE /api/v1/transactions/{id}` - Delete transaction
-- `POST /api/v1/transactions/voice` - Parse voice audio (Whisper + LLM)
+- `POST /api/v1/transactions/voice` - Parse voice audio (Whisper + LLM), supports multipart `file` and JSON/Form `audio_base64`
 - `POST /api/v1/transactions/receipt` - Parse receipt image/PDF and auto-create transaction
 - `POST /api/v1/transactions/{id}/category-correction` - Log user category correction feedback
 
@@ -230,7 +230,7 @@ All endpoints follow `/api/v1/` convention:
 ### AI Features
 - `POST /api/v1/chat` - Conversational query (returns response + reasoning_steps)
 - `POST /api/v1/chat/feedback` - Capture thumbs up/down linked to Opik trace
-- `GET /api/v1/insights` - Fetch weekly summary, patterns, alerts
+- `GET /api/v1/insights` - Fetch weekly summary, patterns, and structured `alerts[]` for Smart Alerts UI
 
 ## Development Workflow
 
@@ -674,9 +674,11 @@ The UI follows the "Stitch" design system from HTML mockups in:
 - Added receipt ingestion endpoint (`POST /api/v1/transactions/receipt`) for image/PDF auto-add.
 - Added SMS batch ingest endpoint (`POST /api/v1/transactions/sms/batch`) with duplicate suppression + AI enrichment.
 - Added dedicated insights route (`GET /api/v1/insights`) while keeping chat insights compatibility.
+- Enhanced insights payload with structured `alerts[]` (anomaly, budget, goal milestone/at-risk) for home screen alert surfacing.
 - Added chat feedback endpoint + category/spend-class correction feedback wiring to Opik.
 - Added localization/PPP helper service with locality tier multipliers and profile auto-defaulting for currency/locale from location.
 - Expanded Opik evaluation scaffolding with spend-class + receipt parsing datasets/metrics/rules.
+- Hardened voice parsing endpoint with strict payload validation, empty-transcript handling, and backward-compatible support for `audio_base64` payloads.
 
 ##### Mobile Upgrades
 - Added CRUD wiring (`updateTransaction`, `deleteTransaction`) and in-app edit transaction flow.
@@ -685,6 +687,8 @@ The UI follows the "Stitch" design system from HTML mockups in:
 - Added location-aware budgeting toggle and profile currency visibility.
 - Added spend-class visualization in transaction item and Trends "Lifestyle Mix".
 - Added spend-class transaction filters in full history screen and reduced alert noise with priority-based SmartAlerts.
+- Improved voice confirmation flow with clarification messaging, amount guardrails, and instant home refresh after voice save.
+- Upgraded SmartAlerts with persisted dismissals (TTL-based), backend alert feed support, and profile-driven notifications toggle sync.
 
 #### Commands
 ```bash

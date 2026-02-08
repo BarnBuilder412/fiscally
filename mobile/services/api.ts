@@ -266,13 +266,26 @@ class ApiClient {
     transcript?: string;
   }> {
     const formData = new FormData();
+    const extension = (audioUri.split('.').pop() || 'm4a').split('?')[0].toLowerCase();
+    const mimeByExt: Record<string, string> = {
+      m4a: 'audio/m4a',
+      mp4: 'audio/mp4',
+      mp3: 'audio/mpeg',
+      wav: 'audio/wav',
+      webm: 'audio/webm',
+      ogg: 'audio/ogg',
+      '3gp': 'audio/3gpp',
+      aac: 'audio/aac',
+      caf: 'audio/x-caf',
+    };
+    const mimeType = mimeByExt[extension] || 'audio/m4a';
 
     // Append file
     // @ts-ignore - React Native FormData has specific shape
     formData.append('file', {
       uri: audioUri,
-      name: 'voice_input.m4a',
-      type: 'audio/m4a',
+      name: `voice_input.${extension}`,
+      type: mimeType,
     });
 
     const token = await this.getAccessToken();
@@ -281,7 +294,7 @@ class ApiClient {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
-        'Content-Type': 'multipart/form-data',
+        // Let fetch set multipart boundaries automatically.
         ...(token && { Authorization: `Bearer ${token}` }),
       },
       body: formData,
@@ -329,7 +342,7 @@ class ApiClient {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
-        'Content-Type': 'multipart/form-data',
+        // Let fetch set multipart boundaries automatically.
         ...(token && { Authorization: `Bearer ${token}` }),
       },
       body: formData,
@@ -383,6 +396,14 @@ class ApiClient {
     period_days?: number;
     total_spent?: number;
     transaction_count?: number;
+    alerts?: Array<{
+      id: string;
+      type: 'anomaly' | 'budget_warning' | 'budget_exceeded' | 'goal_milestone' | 'goal_at_risk' | 'tip';
+      severity: 'info' | 'warning' | 'critical';
+      title: string;
+      message: string;
+      transaction_id?: string;
+    }>;
   }> {
     return this.request('/api/v1/insights');
   }

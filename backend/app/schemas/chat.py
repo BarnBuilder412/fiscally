@@ -58,4 +58,21 @@ class InsightResponse(BaseModel):
     period_days: int
     total_spent: float
     transaction_count: int
+    alerts: List["InsightAlert"] = Field(default_factory=list)
 
+
+class InsightAlert(BaseModel):
+    """Alert payload used by Home Smart Alerts."""
+    id: str
+    type: Literal[
+        "anomaly",
+        "budget_warning",
+        "budget_exceeded",
+        "goal_milestone",
+        "goal_at_risk",
+        "tip",
+    ]
+    severity: Literal["info", "warning", "critical"] = "info"
+    title: str
+    message: str
+    transaction_id: Optional[str] = None

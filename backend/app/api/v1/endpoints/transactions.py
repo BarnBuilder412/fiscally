@@ -7,10 +7,14 @@ Now integrated with TransactionAgent for:
 - Pattern updates
 """
 from datetime import datetime, timedelta
+import base64
+import binascii
 import hashlib
+import os
+import tempfile
 from typing import Annotated, Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File, Form, Request
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
@@ -35,9 +39,70 @@ from app.services.currency_conversion import convert_amount, CurrencyConversionE
 
 router = APIRouter()
 
+VOICE_MAX_UPLOAD_BYTES = 12 * 1024 * 1024
+VOICE_MIME_EXTENSION_MAP = {
+    "audio/m4a": ".m4a",
+    "audio/mp4": ".m4a",
+    "audio/x-m4a": ".m4a",
+    "audio/mpeg": ".mp3",
+    "audio/mp3": ".mp3",
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "audio/aac": ".aac",
+    "audio/webm": ".webm",
+    "audio/ogg": ".ogg",
+    "audio/3gpp": ".3gp",
+    "audio/3gp": ".3gp",
+    "audio/amr": ".amr",
+}
+
 
 def _normalized_text(value: Optional[str]) -> str:
     return (value or "").strip().lower()
+
+
+def _guess_voice_suffix(filename: Optional[str], mime_type: Optional[str]) -> str:
+    """Choose a stable file extension for temporary audio files."""
+    ext = os.path.splitext(filename or "")[1].lower()
+    if ext and 2 <= len(ext) <= 6:
+        return ext
+    return VOICE_MIME_EXTENSION_MAP.get((mime_type or "").lower(), ".m4a")
+
+
+def _extract_audio_from_base64(audio_base64: str) -> tuple[bytes, Optional[str]]:
+    """
+    Decode base64 audio payload.
+
+    Supports both plain base64 and data URI payloads:
+    - "<base64>"
+    - "data:audio/m4a;base64,<base64>"
+    """
+    payload = audio_base64.strip()
+    mime_type: Optional[str] = None
+
+    if payload.startswith("data:") and "," in payload:
+        header, payload = payload.split(",", 1)
+        # Example header: data:audio/m4a;base64
+        mime_part = header.split(";")[0]
+        if mime_part.startswith("data:"):
+            mime_type = mime_part[5:].lower() or None
+    payload = "".join(payload.split())
+
+    try:
+        decoded = base64.b64decode(payload, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid audio_base64 payload",
+        ) from exc
+
+    if not decoded:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Empty audio payload",
+        )
+
+    return decoded, mime_type
 
 
 def _compute_sms_dedupe_key(
@@ -602,45 +667,95 @@ async def submit_category_correction(
 
 @router.post("/voice", response_model=VoiceTransactionResponse)
 async def parse_voice_transaction(
+    request: Request,
     current_user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
-    file: Annotated[UploadFile, File(...)],
+    file: Annotated[Optional[UploadFile], File(default=None)] = None,
+    audio_base64: Annotated[Optional[str], Form(default=None)] = None,
+    mime_type: Annotated[Optional[str], Form(default=None)] = None,
 ):
     """
     Parse voice input to transaction data.
     
-    1. Uploads audio file
+    Accepts either:
+    1. Multipart upload (`file`)
+    2. Base64 audio payload (`audio_base64`)
+
     2. Transcribes using Whisper
     3. Parses intent using LLM
     4. Returns structured data for confirmation
     """
+    # Backward compatibility: support JSON {"audio_base64": "..."} requests.
+    if file is None and not audio_base64:
+        content_type = (request.headers.get("content-type") or "").lower()
+        if "application/json" in content_type:
+            try:
+                payload = await request.json()
+                if isinstance(payload, dict):
+                    audio_base64 = payload.get("audio_base64")
+                    mime_type = payload.get("mime_type")
+            except Exception:
+                pass
+
+    if file is None and not audio_base64:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provide either 'file' or 'audio_base64'",
+        )
+
+    audio_bytes: bytes
+    resolved_mime_type: Optional[str] = None
+    suffix = ".m4a"
+
+    if file is not None:
+        resolved_mime_type = (file.content_type or "").lower() or None
+        audio_bytes = await file.read()
+        if not audio_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Uploaded audio file is empty",
+            )
+        suffix = _guess_voice_suffix(file.filename, resolved_mime_type)
+    else:
+        audio_bytes, extracted_mime = _extract_audio_from_base64(audio_base64 or "")
+        resolved_mime_type = (mime_type or extracted_mime or "").lower() or None
+        suffix = _guess_voice_suffix(None, resolved_mime_type)
+
+    if len(audio_bytes) > VOICE_MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Audio file too large",
+        )
+
     # Initialize AI components
     context_manager = ContextManager(db)
     from app.ai.llm_client import llm_client
-    
-    # Save uploaded file temporarily
-    import shutil
-    import tempfile
-    import os
-    
-    # Create temp file with same extension
-    suffix = os.path.splitext(file.filename)[1] if file.filename else ".tmp"
+
+    # Save audio to temp file for Whisper ingestion.
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        shutil.copyfileobj(file.file, tmp)
+        tmp.write(audio_bytes)
         tmp_path = tmp.name
     
     try:
         # Transcribe
-        transcript = await llm_client.transcribe_audio(tmp_path)
+        transcript = (await llm_client.transcribe_audio(tmp_path)).strip()
+        if not transcript:
+            return VoiceTransactionResponse(
+                amount=0.0,
+                merchant=None,
+                category="other",
+                confidence=0.0,
+                needs_clarification=True,
+                clarification_question="I couldn't hear that clearly. Please try again.",
+                transcript="",
+            )
         
         # Load context for better parsing
         user_context = await context_manager.load_full_context(str(current_user.id))
         
         # Parse intent
         result = await llm_client.parse_voice_input(transcript, user_context)
-        
-        # Include the transcript in the response
-        result["transcript"] = transcript
+
         # Defensive normalization so response always matches schema.
         try:
             amount = float(result.get("amount", 0.0))
@@ -652,6 +767,13 @@ async def parse_voice_transaction(
         category = result.get("category")
         if not isinstance(category, str) or not category.strip():
             category = "other"
+        category = category.strip().lower()
+        if category not in VALID_CATEGORIES:
+            category = "other"
+
+        merchant = result.get("merchant")
+        if merchant is not None:
+            merchant = str(merchant).strip()[:255] or None
 
         try:
             confidence = float(result.get("confidence", 0.0))
@@ -659,11 +781,33 @@ async def parse_voice_transaction(
             confidence = 0.0
         confidence = max(0.0, min(1.0, confidence))
 
-        result["amount"] = amount
-        result["category"] = category.strip().lower()
-        result["confidence"] = confidence
-        
-        return result
+        needs_clarification = result.get("needs_clarification", False)
+        if isinstance(needs_clarification, str):
+            needs_clarification = needs_clarification.lower() in {"true", "1", "yes"}
+        else:
+            needs_clarification = bool(needs_clarification)
+
+        clarification_question = result.get("clarification_question")
+        if clarification_question is not None:
+            clarification_question = str(clarification_question).strip()[:255] or None
+
+        # Force clarification when amount is missing/invalid.
+        if amount <= 0:
+            needs_clarification = True
+            clarification_question = (
+                clarification_question
+                or "I couldn't detect the amount. Please say it once more."
+            )
+
+        return VoiceTransactionResponse(
+            amount=amount,
+            merchant=merchant,
+            category=category,
+            confidence=confidence,
+            needs_clarification=needs_clarification,
+            clarification_question=clarification_question,
+            transcript=transcript,
+        )
         
     except Exception as e:
         print(f"Voice processing failed: {e}")
@@ -671,7 +815,7 @@ async def parse_voice_transaction(
         print(traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Voice processing failed: {str(e)}"
+            detail="Voice processing failed. Please try again.",
         )
     finally:
         # Cleanup temp file

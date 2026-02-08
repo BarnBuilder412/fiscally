@@ -9,6 +9,7 @@ import {
   Platform,
   TextInput,
   Keyboard,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -25,9 +26,9 @@ import {
   BorderRadius,
 } from '@/constants/theme';
 import { getCategoryIcon, CATEGORIES } from '@/constants/categories';
-import { Button } from '@/components';
 import { api } from '@/services/api';
 import { formatCurrency, getCurrencySymbol } from '@/utils/currency';
+import { eventBus, Events } from '@/services/eventBus';
 
 type VoiceState = 'idle' | 'recording' | 'processing' | 'result';
 type EditingField = 'amount' | 'merchant' | 'category' | null;
@@ -46,6 +47,7 @@ export default function VoiceInputScreen() {
   const [state, setState] = useState<VoiceState>('idle');
   const [transcript, setTranscript] = useState('');
   const [result, setResult] = useState<ParsedResult | null>(null);
+  const [clarificationQuestion, setClarificationQuestion] = useState<string | null>(null);
   const [pulseAnim] = useState(new Animated.Value(1));
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [permissionResponse, requestPermission] = Audio.usePermissions();
@@ -83,6 +85,15 @@ export default function VoiceInputScreen() {
     loadCurrency();
   }, []);
 
+  useEffect(() => {
+    return () => {
+      // Cleanup in case user leaves screen mid-recording.
+      if (recording) {
+        recording.stopAndUnloadAsync().catch(() => undefined);
+      }
+    };
+  }, [recording]);
+
   const startPulseAnimation = () => {
     Animated.loop(
       Animated.sequence([
@@ -103,14 +114,14 @@ export default function VoiceInputScreen() {
   const startRecording = async () => {
     try {
       if ((Platform.OS as string) === 'web') {
-        alert('Voice input is not supported on web yet');
+        Alert.alert('Unsupported', 'Voice input is not supported on web yet.');
         return;
       }
 
       if (permissionResponse?.status !== 'granted') {
         const resp = await requestPermission();
         if (resp.status !== 'granted') {
-          alert('Microphone permission is required');
+          Alert.alert('Permission required', 'Microphone permission is required.');
           return;
         }
       }
@@ -127,13 +138,14 @@ export default function VoiceInputScreen() {
       setRecording(recording);
       setState('recording');
       setTranscript(''); // Clear previous transcript
+      setClarificationQuestion(null);
 
       if ((Platform.OS as string) !== 'web') {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
     } catch (err) {
       console.error('Failed to start recording', err);
-      alert('Failed to start recording');
+      Alert.alert('Recording failed', 'Failed to start recording.');
       isHolding.current = false;
     }
   };
@@ -165,6 +177,11 @@ export default function VoiceInputScreen() {
         merchant: data.merchant || 'Unknown',
         category: data.category,
       });
+      setClarificationQuestion(
+        data.needs_clarification
+          ? (data.clarification_question || 'Please verify the extracted details before confirming.')
+          : null
+      );
       // Use actual transcript from backend, fallback to a description if not available
       setTranscript(data.transcript || `Spent ${data.amount} on ${data.merchant || 'unknown'}`);
       setState('result');
@@ -174,7 +191,7 @@ export default function VoiceInputScreen() {
       }
     } catch (err) {
       console.error('Failed to process recording', err);
-      alert('Failed to process voice input. Please try again.');
+      Alert.alert('Voice parsing failed', 'Failed to process voice input. Please try again.');
       setState('idle');
     }
   };
@@ -267,23 +284,32 @@ export default function VoiceInputScreen() {
 
   const handleConfirm = async () => {
     if (!result) return;
+    const parsedAmount = Number(result.amount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      Alert.alert(
+        'Invalid amount',
+        clarificationQuestion || 'Please enter a valid amount before confirming.'
+      );
+      return;
+    }
 
     try {
       if ((Platform.OS as string) !== 'web') {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
       await api.createTransaction({
-        amount: parseFloat(result.amount),
+        amount: parsedAmount,
         currency: currencyCode,
-        merchant: result.merchant,
+        merchant: (result.merchant || '').trim() || undefined,
         category: result.category,
         note: `Voice: ${transcript}`,
         source: 'voice',
       });
+      eventBus.emit(Events.TRANSACTION_ADDED);
       router.replace('/(tabs)');
     } catch (error) {
       console.error('Failed to create transaction:', error);
-      alert('Failed to create transaction. Please try again.');
+      Alert.alert('Save failed', 'Failed to create transaction. Please try again.');
     }
   };
 
@@ -291,6 +317,7 @@ export default function VoiceInputScreen() {
     setState('idle');
     setTranscript('');
     setResult(null);
+    setClarificationQuestion(null);
     setEditingField(null);
   };
 
@@ -349,6 +376,8 @@ export default function VoiceInputScreen() {
         );
 
       case 'result':
+        const parsedAmount = Number(result?.amount || 0);
+        const canConfirm = Number.isFinite(parsedAmount) && parsedAmount > 0;
         return (
           <ScrollView
             style={styles.resultScroll}
@@ -368,6 +397,13 @@ export default function VoiceInputScreen() {
                 <Ionicons name="bar-chart" size={48} color={Colors.accent} />
               </View>
             </View>
+
+            {clarificationQuestion && (
+              <View style={styles.clarificationCard}>
+                <Ionicons name="help-circle-outline" size={18} color={Colors.warning} />
+                <Text style={styles.clarificationText}>{clarificationQuestion}</Text>
+              </View>
+            )}
 
             <Text style={styles.confirmTitle}>Confirm Transaction</Text>
 
@@ -521,8 +557,9 @@ export default function VoiceInputScreen() {
             {/* Actions */}
             <View style={styles.actionContainer}>
               <TouchableOpacity
-                style={styles.confirmButton}
+                style={[styles.confirmButton, !canConfirm && styles.confirmButtonDisabled]}
                 onPress={handleConfirm}
+                disabled={!canConfirm}
               >
                 <Text style={styles.confirmButtonText}>Confirm Entry</Text>
               </TouchableOpacity>
@@ -681,6 +718,25 @@ const styles = StyleSheet.create({
     color: Colors.gray900,
     marginBottom: Spacing.lg,
   },
+  clarificationCard: {
+    width: '100%',
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    alignItems: 'flex-start',
+    backgroundColor: Colors.warning + '12',
+    borderWidth: 1,
+    borderColor: Colors.warning + '40',
+    borderRadius: BorderRadius.lg,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    marginBottom: Spacing.lg,
+  },
+  clarificationText: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: 20,
+  },
   txnCard: {
     width: '100%',
     borderRadius: BorderRadius.xxl,
@@ -822,6 +878,9 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.xl,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  confirmButtonDisabled: {
+    opacity: 0.45,
   },
   confirmButtonText: {
     color: Colors.white,

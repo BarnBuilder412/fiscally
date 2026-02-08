@@ -263,6 +263,14 @@ export default function HomeScreen() {
     headline?: string;
     summary?: string;
     tip?: string;
+    alerts?: Array<{
+      id: string;
+      type: 'anomaly' | 'budget_warning' | 'budget_exceeded' | 'goal_milestone' | 'goal_at_risk' | 'tip';
+      severity: 'info' | 'warning' | 'critical';
+      title: string;
+      message: string;
+      transaction_id?: string;
+    }>;
   } | null>(null);
   const [goalProgress, setGoalProgress] = useState<{
     monthly_salary: number;
@@ -274,6 +282,7 @@ export default function HomeScreen() {
     tip?: string;
   } | null>(null);
   const [userCurrency, setUserCurrency] = useState('INR');
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
 
   const loadData = useCallback(async () => {
     console.log('[HomeScreen] loadData called');
@@ -287,7 +296,7 @@ export default function HomeScreen() {
       setIsAuthenticated(true);
 
       // Load transactions and user preferences
-      const [txnResponse, insightsData, goalProgressData, profileData, storedGoals, storedBudget, storedIncome, storedGoalDetails] = await Promise.all([
+      const [txnResponse, insightsData, goalProgressData, profileData, storedGoals, storedBudget, storedIncome, storedGoalDetails, storedNotifications] = await Promise.all([
         api.getTransactions({ limit: 50 }).catch(() => ({ transactions: [] })),
         api.getInsights().catch(() => null),
         api.getGoalProgress().catch((e) => { console.log('[HomeScreen] Goal progress API error:', e); return null; }),
@@ -296,6 +305,7 @@ export default function HomeScreen() {
         AsyncStorage.getItem('user_budget'),
         AsyncStorage.getItem('user_income'),
         AsyncStorage.getItem('user_goal_details'),
+        AsyncStorage.getItem('notifications_enabled'),
       ]);
 
       const txns = txnResponse?.transactions || [];
@@ -317,6 +327,14 @@ export default function HomeScreen() {
         setUserCurrency(String(profileCurrency).toUpperCase());
       } else if (txns.length > 0 && txns[0].currency) {
         setUserCurrency(String(txns[0].currency).toUpperCase());
+      }
+      const profileNotifications = profileData?.profile?.preferences?.notifications_enabled;
+      if (typeof profileNotifications === 'boolean') {
+        setNotificationsEnabled(profileNotifications);
+      } else if (storedNotifications !== null) {
+        setNotificationsEnabled(storedNotifications === '1');
+      } else {
+        setNotificationsEnabled(true);
       }
     } catch (error: any) {
       if (error?.message?.includes('credentials') || error?.message?.includes('Not authenticated')) {
@@ -552,14 +570,17 @@ export default function HomeScreen() {
         </Card>
 
         {/* Smart Alerts */}
-        <View style={styles.section}>
-          <SmartAlerts
-            transactions={transactions}
-            budgetPercentage={budgetPercentage}
-            primaryCurrency={userCurrency}
-            onViewTransaction={(t) => router.push({ pathname: '/edit-transaction', params: { id: t.id } } as any)}
-          />
-        </View>
+        {notificationsEnabled && (
+          <View style={styles.section}>
+            <SmartAlerts
+              transactions={transactions}
+              budgetPercentage={budgetPercentage}
+              primaryCurrency={userCurrency}
+              serverAlerts={insights?.alerts || []}
+              onViewTransaction={(t) => router.push({ pathname: '/edit-transaction', params: { id: t.id } } as any)}
+            />
+          </View>
+        )}
 
         {/* Active Goals */}
         {goalData.length > 0 && (

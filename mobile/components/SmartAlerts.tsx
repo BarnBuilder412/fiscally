@@ -1,13 +1,22 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 import { Transaction } from '@/types';
 import { formatCurrency } from '@/utils/currency';
 
+type AlertType =
+    | 'anomaly'
+    | 'budget_warning'
+    | 'budget_exceeded'
+    | 'goal_milestone'
+    | 'goal_at_risk'
+    | 'tip';
+
 interface Alert {
     id: string;
-    type: 'anomaly' | 'budget_warning' | 'budget_exceeded' | 'tip';
+    type: AlertType;
     title: string;
     message: string;
     severity: 'info' | 'warning' | 'critical';
@@ -15,37 +24,165 @@ interface Alert {
     actionable?: boolean;
 }
 
+interface ServerAlert {
+    id: string;
+    type: AlertType;
+    severity: 'info' | 'warning' | 'critical';
+    title: string;
+    message: string;
+    transaction_id?: string;
+}
+
 interface SmartAlertsProps {
     transactions: Transaction[];
     budgetPercentage: number;
     primaryCurrency?: string;
+    serverAlerts?: ServerAlert[];
     onDismiss?: (alertId: string) => void;
     onViewTransaction?: (transaction: Transaction) => void;
 }
+
+type DismissedAlertMap = Record<
+    string,
+    {
+        dismissed_at: number;
+        type: AlertType;
+    }
+>;
+
+const STORAGE_KEY = 'smart_alerts_dismissed_v2';
+const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
+const ALERT_TTL_MS: Record<AlertType, number> = {
+    anomaly: 7 * 24 * 60 * 60 * 1000,
+    budget_warning: 12 * 60 * 60 * 1000,
+    budget_exceeded: 6 * 60 * 60 * 1000,
+    goal_milestone: 3 * 24 * 60 * 60 * 1000,
+    goal_at_risk: 12 * 60 * 60 * 1000,
+    tip: 24 * 60 * 60 * 1000,
+};
 
 const ALERT_CONFIGS = {
     anomaly: { icon: 'warning-outline', color: Colors.warning },
     budget_warning: { icon: 'alert-circle-outline', color: Colors.warning },
     budget_exceeded: { icon: 'close-circle-outline', color: Colors.error },
+    goal_milestone: { icon: 'flag-outline', color: Colors.primary },
+    goal_at_risk: { icon: 'alert-outline', color: Colors.warning },
     tip: { icon: 'bulb-outline', color: Colors.primary },
 };
+
+function inferAlertTypeFromId(alertId: string): AlertType {
+    if (alertId.startsWith('anomaly-')) return 'anomaly';
+    if (alertId.startsWith('budget-exceeded')) return 'budget_exceeded';
+    if (alertId.startsWith('budget-warning')) return 'budget_warning';
+    if (alertId.startsWith('goal-risk-')) return 'goal_at_risk';
+    if (alertId.startsWith('goal-milestone-')) return 'goal_milestone';
+    return 'tip';
+}
+
+function normalizeDismissedState(raw: unknown): DismissedAlertMap {
+    if (!raw || typeof raw !== 'object') return {};
+
+    const normalized: DismissedAlertMap = {};
+    for (const [alertId, entry] of Object.entries(raw as Record<string, unknown>)) {
+        if (!entry || typeof entry !== 'object') {
+            if (typeof entry === 'number') {
+                normalized[alertId] = {
+                    dismissed_at: entry,
+                    type: inferAlertTypeFromId(alertId),
+                };
+            }
+            continue;
+        }
+        const dismissedAt = Number((entry as any).dismissed_at);
+        const type = (entry as any).type as AlertType | undefined;
+        if (!Number.isFinite(dismissedAt)) continue;
+        normalized[alertId] = {
+            dismissed_at: dismissedAt,
+            type: type || inferAlertTypeFromId(alertId),
+        };
+    }
+    return normalized;
+}
+
+function pruneExpiredDismissals(entries: DismissedAlertMap): DismissedAlertMap {
+    const now = Date.now();
+    const next: DismissedAlertMap = {};
+    for (const [alertId, entry] of Object.entries(entries)) {
+        const ttl = ALERT_TTL_MS[entry.type] ?? DEFAULT_TTL_MS;
+        if (now - entry.dismissed_at < ttl) {
+            next[alertId] = entry;
+        }
+    }
+    return next;
+}
 
 export const SmartAlerts = ({
     transactions,
     budgetPercentage,
     primaryCurrency,
+    serverAlerts = [],
     onDismiss,
     onViewTransaction,
 }: SmartAlertsProps) => {
-    const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
+    const [dismissedMap, setDismissedMap] = useState<DismissedAlertMap>({});
+    const [dismissedLoaded, setDismissedLoaded] = useState(false);
     const effectiveCurrency = primaryCurrency || transactions[0]?.currency || 'INR';
 
-    // Generate alerts from data
-    const generateAlerts = (): Alert[] => {
+    useEffect(() => {
+        const loadDismissed = async () => {
+            try {
+                const raw = await AsyncStorage.getItem(STORAGE_KEY);
+                const parsed = raw ? JSON.parse(raw) : {};
+                const normalized = normalizeDismissedState(parsed);
+                const pruned = pruneExpiredDismissals(normalized);
+                setDismissedMap(pruned);
+                if (JSON.stringify(normalized) !== JSON.stringify(pruned)) {
+                    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(pruned));
+                }
+            } catch (error) {
+                console.log('Failed to load dismissed smart alerts:', error);
+                setDismissedMap({});
+            } finally {
+                setDismissedLoaded(true);
+            }
+        };
+
+        loadDismissed();
+    }, []);
+
+    const isDismissed = (alertId: string): boolean => {
+        const entry = dismissedMap[alertId];
+        if (!entry) return false;
+        const ttl = ALERT_TTL_MS[entry.type] ?? DEFAULT_TTL_MS;
+        return Date.now() - entry.dismissed_at < ttl;
+    };
+
+    const alerts = useMemo(() => {
         const alerts: Alert[] = [];
+        const txById = new Map(transactions.map((transaction) => [transaction.id, transaction]));
+
+        // Server-provided alerts are added first (already prioritized by backend logic).
+        for (const alert of serverAlerts) {
+            if (isDismissed(alert.id)) continue;
+            const linkedTransaction = alert.transaction_id ? txById.get(alert.transaction_id) : undefined;
+            alerts.push({
+                id: alert.id,
+                type: alert.type,
+                title: alert.title,
+                message: alert.message,
+                severity: alert.severity,
+                transaction: linkedTransaction,
+                actionable: Boolean(linkedTransaction),
+            });
+        }
+
+        const hasBudgetAlert = alerts.some(
+            (alert) => alert.type === 'budget_warning' || alert.type === 'budget_exceeded'
+        );
+        const hasAnomalyAlert = alerts.some((alert) => alert.type === 'anomaly');
 
         // Budget alerts get highest priority.
-        if (budgetPercentage >= 100 && !dismissedIds.has('budget-exceeded')) {
+        if (!hasBudgetAlert && budgetPercentage >= 100 && !isDismissed('budget-exceeded')) {
             alerts.push({
                 id: 'budget-exceeded',
                 type: 'budget_exceeded',
@@ -53,7 +190,7 @@ export const SmartAlerts = ({
                 message: `You've exceeded your monthly budget by ${Math.round(budgetPercentage - 100)}%`,
                 severity: 'critical',
             });
-        } else if (budgetPercentage >= 90 && !dismissedIds.has('budget-warning')) {
+        } else if (!hasBudgetAlert && budgetPercentage >= 90 && !isDismissed('budget-warning')) {
             alerts.push({
                 id: 'budget-warning',
                 type: 'budget_warning',
@@ -65,9 +202,9 @@ export const SmartAlerts = ({
 
         // Add only the most recent anomaly to reduce noise.
         const anomaly = transactions
-            .filter(t => t.is_anomaly && !dismissedIds.has(`anomaly-${t.id}`))
+            .filter(t => t.is_anomaly && !isDismissed(`anomaly-${t.id}`))
             .sort((a, b) => new Date(b.transaction_at || b.created_at).getTime() - new Date(a.transaction_at || a.created_at).getTime())[0];
-        if (anomaly) {
+        if (!hasAnomalyAlert && anomaly) {
             alerts.push({
                 id: `anomaly-${anomaly.id}`,
                 type: 'anomaly',
@@ -88,7 +225,7 @@ export const SmartAlerts = ({
             alerts.length < 2
             && luxuryTransactions.length >= 3
             && luxuryShare >= 40
-            && !dismissedIds.has('luxury-share')
+            && !isDismissed('luxury-share')
         ) {
             alerts.push({
                 id: 'luxury-share',
@@ -103,15 +240,26 @@ export const SmartAlerts = ({
         return alerts
             .sort((a, b) => severityRank[a.severity] - severityRank[b.severity])
             .slice(0, 2);
+    }, [transactions, budgetPercentage, serverAlerts, dismissedMap, effectiveCurrency]);
+
+    const handleDismiss = async (alert: Alert) => {
+        const nextMap: DismissedAlertMap = {
+            ...dismissedMap,
+            [alert.id]: {
+                dismissed_at: Date.now(),
+                type: alert.type,
+            },
+        };
+        setDismissedMap(nextMap);
+        onDismiss?.(alert.id);
+        try {
+            await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nextMap));
+        } catch (error) {
+            console.log('Failed to persist dismissed smart alert:', error);
+        }
     };
 
-    const alerts = generateAlerts();
-
-    const handleDismiss = (alertId: string) => {
-        setDismissedIds(prev => new Set([...prev, alertId]));
-        onDismiss?.(alertId);
-    };
-
+    if (!dismissedLoaded) return null;
     if (alerts.length === 0) return null;
 
     return (
@@ -151,7 +299,7 @@ export const SmartAlerts = ({
                                     </TouchableOpacity>
                                     <TouchableOpacity
                                         style={[styles.actionButton, styles.actionButtonSecondary]}
-                                        onPress={() => handleDismiss(alert.id)}
+                                        onPress={() => handleDismiss(alert)}
                                     >
                                         <Text style={styles.actionButtonTextSecondary}>It's Planned</Text>
                                     </TouchableOpacity>
@@ -161,7 +309,7 @@ export const SmartAlerts = ({
 
                         <TouchableOpacity
                             style={styles.dismissButton}
-                            onPress={() => handleDismiss(alert.id)}
+                            onPress={() => handleDismiss(alert)}
                         >
                             <Ionicons name="close" size={16} color={Colors.gray400} />
                         </TouchableOpacity>

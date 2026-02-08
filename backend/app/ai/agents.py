@@ -343,42 +343,49 @@ class ChatAgent:
 
         if monthly_salary is None and monthly_budget is None:
             return (
-                "I don't have your income or budget saved yet. "
-                "Update Monthly Income and Monthly Budget in Profile, then ask again."
+                "### Financial Snapshot\n"
+                "- Income: Not set\n"
+                "- Budget: Not set\n\n"
+                "Update **Monthly Income** and **Monthly Budget** in Profile, then ask again."
             )
 
-        lines: List[str] = []
+        lines: List[str] = ["### Financial Snapshot"]
         if monthly_salary is not None:
-            lines.append(f"Your monthly income is {symbol}{monthly_salary:,.0f}.")
+            lines.append(f"- Monthly income: {symbol}{monthly_salary:,.0f}")
+        else:
+            lines.append("- Monthly income: Not set")
         if monthly_budget is not None:
-            lines.append(f"Your monthly budget is {symbol}{monthly_budget:,.0f}.")
+            lines.append(f"- Monthly budget: {symbol}{monthly_budget:,.0f}")
+        else:
+            lines.append("- Monthly budget: Not set")
+        lines.append("")
+        lines.append("### Month Projection")
         lines.append(
-            f"Month-to-date expenses are {symbol}{month_to_date_expenses:,.0f} "
-            f"({elapsed_days}/{days_in_month} days)."
+            f"- Month-to-date expenses: {symbol}{month_to_date_expenses:,.0f} "
+            f"({elapsed_days}/{days_in_month} days)"
         )
         lines.append(
-            f"Projected month-end expenses are {symbol}{projected_monthly_expenses:,.0f} "
-            f"at current run-rate."
+            f"- Projected month-end expenses: {symbol}{projected_monthly_expenses:,.0f}"
         )
         if monthly_salary is not None:
             expected_month_end_savings = monthly_salary - projected_monthly_expenses
             lines.append(
-                "Expected month-end savings (income - projected expenses): "
-                f"{self._format_signed_amount(expected_month_end_savings, symbol)}."
+                "- Expected month-end savings "
+                f"(`income - projected expenses`): {self._format_signed_amount(expected_month_end_savings, symbol)}"
             )
             current_savings_to_date = monthly_salary - month_to_date_expenses
             lines.append(
-                "Current savings if month ended today: "
-                f"{self._format_signed_amount(current_savings_to_date, symbol)}."
+                "- Current savings if month ended today: "
+                f"{self._format_signed_amount(current_savings_to_date, symbol)}"
             )
         if monthly_budget is not None:
             projected_budget_delta = monthly_budget - projected_monthly_expenses
             lines.append(
-                "Projected budget variance: "
+                "- Projected budget variance: "
                 f"{self._format_signed_amount(projected_budget_delta, symbol)} "
-                f"({remaining_days} days left)."
+                f"({remaining_days} days left)"
             )
-        return " ".join(lines)
+        return "\n".join(lines)
 
     async def _build_savings_advisory_response(
         self,
@@ -403,11 +410,17 @@ class ChatAgent:
         if not by_category_mtd:
             if monthly_salary is not None:
                 return (
-                    f"I need more transaction data for targeted savings advice. "
-                    f"With your current monthly income of {symbol}{monthly_salary:,.0f}, "
-                    "add a few expenses and I can suggest category-level cuts with exact impact."
+                    "### Savings Advice\n"
+                    "- Not enough transaction data yet for targeted category cuts.\n"
+                    f"- Current monthly income: {symbol}{monthly_salary:,.0f}\n\n"
+                    "Add a few expenses and ask again for precise, category-level advice."
                 )
-            return "I need more transaction data and your income to give targeted savings advice."
+            return (
+                "### Savings Advice\n"
+                "- Not enough transaction data yet.\n"
+                "- Income not set.\n\n"
+                "Set income in Profile and add a few expenses for personalized advice."
+            )
 
         projected_categories: List[Dict[str, Any]] = []
         for category, value in by_category_mtd.items():
@@ -435,8 +448,8 @@ class ChatAgent:
             reducible_amount = row["projected"] * cut_pct
             total_reduction += reducible_amount
             recommendations.append(
-                f"{idx + 1}) {self._format_category_name(row['category'])}: cut by {int(cut_pct * 100)}% "
-                f"(projected {symbol}{row['projected']:,.0f}) to save ~{symbol}{reducible_amount:,.0f}."
+                f"- **{self._format_category_name(row['category'])}**: cut by {int(cut_pct * 100)}% "
+                f"(projected {symbol}{row['projected']:,.0f}) to save ~{symbol}{reducible_amount:,.0f}"
             )
 
         top_spend_summary = ", ".join(
@@ -445,23 +458,28 @@ class ChatAgent:
         )
 
         lines: List[str] = [
-            f"Projected month-end expenses at current run-rate: {symbol}{projected_monthly_expenses:,.0f}.",
-            f"Top projected categories: {top_spend_summary}.",
-            "Best savings moves this month:",
+            "### Savings Plan (This Month)",
+            f"- Projected month-end expenses: {symbol}{projected_monthly_expenses:,.0f}",
+            f"- Top projected categories: {top_spend_summary}",
+            "",
+            "### Best Moves",
             *recommendations,
-            f"Potential extra savings from these cuts: ~{symbol}{total_reduction:,.0f}.",
+            "",
+            f"- Potential extra savings from these cuts: ~{symbol}{total_reduction:,.0f}",
         ]
 
         if monthly_salary is not None:
             base_savings = monthly_salary - projected_monthly_expenses
             improved_savings = base_savings + total_reduction
+            lines.append("")
+            lines.append("### Savings Impact")
             lines.append(
-                "Expected month-end savings can move from "
+                "- Expected month-end savings can move from "
                 f"{self._format_signed_amount(base_savings, symbol)} "
-                f"to {self._format_signed_amount(improved_savings, symbol)}."
+                f"to {self._format_signed_amount(improved_savings, symbol)}"
             )
 
-        return " ".join(lines)
+        return "\n".join(lines)
     
     @opik.track(name="chat_agent_handle", tags=["agent", "chat", "conversation"])
     async def handle(

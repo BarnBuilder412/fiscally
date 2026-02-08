@@ -32,6 +32,7 @@ import {
   stopSmsTracking,
 } from '@/services/smsTracking';
 import { enableLocationAwareBudgeting } from '@/services/locationBudgeting';
+import { eventBus, Events } from '@/services/eventBus';
 
 interface SettingItemProps {
   icon: string;
@@ -84,8 +85,14 @@ export default function ProfileScreen() {
 
   const loadProfile = async () => {
     try {
-      const smsEnabled = await isSmsTrackingEnabled();
+      const [smsEnabled, localNotifications] = await Promise.all([
+        isSmsTrackingEnabled(),
+        AsyncStorage.getItem('notifications_enabled'),
+      ]);
       setSmsTracking(smsEnabled);
+      if (localNotifications !== null) {
+        setNotifications(localNotifications === '1');
+      }
 
       const userData = await api.getMe();
       if (userData) {
@@ -123,6 +130,15 @@ export default function ProfileScreen() {
           setCurrencyCode(String(profileCurrency).toUpperCase());
         }
         setLocationBudgeting(Boolean(userData.profile?.preferences?.location_budgeting_enabled));
+
+        const serverNotifications = userData.profile?.preferences?.notifications_enabled;
+        if (typeof serverNotifications === 'boolean') {
+          setNotifications(serverNotifications);
+        } else if (localNotifications !== null) {
+          setNotifications(localNotifications === '1');
+        } else {
+          setNotifications(true);
+        }
       }
     } catch (error) {
       console.log('Failed to load profile:', error);
@@ -193,6 +209,25 @@ export default function ProfileScreen() {
     } catch (error: any) {
       Alert.alert('Location setup failed', error?.message || 'Unable to enable location-aware budgeting.');
       setLocationBudgeting(false);
+    }
+  };
+
+  const handleNotificationsToggle = async (value: boolean) => {
+    setNotifications(value);
+    await AsyncStorage.setItem('notifications_enabled', value ? '1' : '0');
+    eventBus.emit(Events.PREFERENCES_CHANGED);
+
+    try {
+      await api.updateProfile({
+        profile: {
+          preferences: {
+            notifications_enabled: value,
+          },
+        },
+      } as any);
+    } catch (error) {
+      // Keep local preference for UX continuity; backend can catch up later.
+      console.log('Failed to sync notification preference:', error);
     }
   };
 
@@ -311,7 +346,7 @@ export default function ProfileScreen() {
             rightElement={
               <Switch
                 value={notifications}
-                onValueChange={setNotifications}
+                onValueChange={handleNotificationsToggle}
                 trackColor={{ false: Colors.gray200, true: Colors.primaryLight }}
                 thumbColor={notifications ? Colors.primary : Colors.white}
                 ios_backgroundColor={Colors.gray200}
