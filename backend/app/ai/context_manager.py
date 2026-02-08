@@ -5,6 +5,7 @@ Manages user context (profile, patterns, insights, goals, memory).
 This is the interface between AI agents and the database.
 """
 
+import calendar
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
@@ -571,6 +572,59 @@ class ContextManager:
             .all()
         )
         return sum(float(t.amount) for t in transactions)
+
+    async def get_current_month_projection(self, user_id: str) -> Dict[str, Any]:
+        """
+        Estimate month-end expenses from month-to-date run rate.
+
+        Returns:
+            {
+                "month_to_date_expenses": float,
+                "projected_monthly_expenses": float,
+                "daily_run_rate": float,
+                "elapsed_days": int,
+                "days_in_month": int,
+                "remaining_days": int,
+                "transaction_count_mtd": int,
+                "by_category_mtd": {"food": 1200.0},
+            }
+        """
+        from app.models.user import Transaction
+
+        now = datetime.utcnow()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        days_in_month = calendar.monthrange(now.year, now.month)[1]
+        elapsed_days = max(1, now.day)
+        remaining_days = max(0, days_in_month - elapsed_days)
+
+        transactions = (
+            self.db.query(Transaction)
+            .filter(
+                Transaction.user_id == user_id,
+                Transaction.transaction_at >= month_start,
+                Transaction.transaction_at <= now,
+            )
+            .all()
+        )
+
+        month_to_date_expenses = sum(float(t.amount) for t in transactions)
+        by_category_mtd: Dict[str, float] = {}
+        for transaction in transactions:
+            category = transaction.category or "other"
+            by_category_mtd[category] = by_category_mtd.get(category, 0.0) + float(transaction.amount)
+        daily_run_rate = month_to_date_expenses / elapsed_days if elapsed_days > 0 else 0.0
+        projected_monthly_expenses = daily_run_rate * days_in_month
+
+        return {
+            "month_to_date_expenses": round(month_to_date_expenses, 2),
+            "projected_monthly_expenses": round(projected_monthly_expenses, 2),
+            "daily_run_rate": round(daily_run_rate, 2),
+            "elapsed_days": elapsed_days,
+            "days_in_month": days_in_month,
+            "remaining_days": remaining_days,
+            "transaction_count_mtd": len(transactions),
+            "by_category_mtd": {k: round(v, 2) for k, v in by_category_mtd.items()},
+        }
 
     # =========================================================================
     # FORMAT DATA FOR LLM

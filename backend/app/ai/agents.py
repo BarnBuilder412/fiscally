@@ -265,20 +265,81 @@ class ChatAgent:
             for keyword in ("income", "salary", "earn", "earning", "budget")
         )
 
-    async def _build_financial_snapshot_response(
+    @staticmethod
+    def _is_savings_advisory_query(message: str) -> bool:
+        """Detect intent for actionable savings advice."""
+        message_lower = message.lower()
+        advisory_tokens = (
+            "how can i save",
+            "save more",
+            "improve savings",
+            "increase savings",
+            "reduce spending",
+            "cut spending",
+            "cut expense",
+            "lower expense",
+            "where should i cut",
+            "saving tips",
+            "savings tips",
+            "advice",
+        )
+        return any(token in message_lower for token in advisory_tokens)
+
+    @staticmethod
+    def _is_savings_projection_query(message: str) -> bool:
+        """Detect queries asking for expected/estimated savings this month."""
+        message_lower = message.lower()
+        if ChatAgent._is_savings_advisory_query(message):
+            return False
+        has_savings_term = any(token in message_lower for token in ("saving", "savings", "save"))
+        if not has_savings_term:
+            return False
+        if any(token in message_lower for token in ("goal", "trip", "target")):
+            return False
+        return any(
+            token in message_lower
+            for token in (
+                "expected",
+                "projected",
+                "projection",
+                "estimate",
+                "this month",
+                "month end",
+                "month-end",
+                "how much",
+                "what is my",
+            )
+        )
+
+    @staticmethod
+    def _format_signed_amount(value: float, symbol: str) -> str:
+        sign = "-" if value < 0 else ""
+        return f"{sign}{symbol}{abs(value):,.0f}"
+
+    @staticmethod
+    def _format_category_name(category: str) -> str:
+        return category.replace("_", " ").strip().title()
+
+    async def _build_financial_metrics_response(
         self,
         user_id: str,
         currency_code: str,
     ) -> str:
         """
-        Build a deterministic answer for income/budget questions from DB profile.
-        This avoids stale values from conversational memory.
+        Build a deterministic answer for income/budget/savings questions from DB profile.
+        Savings is computed using salary minus projected month-end expenses.
         """
         symbol = get_currency_symbol(currency_code)
         financial = await self.context.load_financial_profile(user_id)
+        projection = await self.context.get_current_month_projection(user_id)
 
         monthly_salary = self._safe_number(financial.get("monthly_salary"))
         monthly_budget = self._safe_number(financial.get("monthly_budget"))
+        month_to_date_expenses = self._safe_number(projection.get("month_to_date_expenses")) or 0.0
+        projected_monthly_expenses = self._safe_number(projection.get("projected_monthly_expenses")) or 0.0
+        elapsed_days = int(projection.get("elapsed_days") or 0)
+        days_in_month = int(projection.get("days_in_month") or 0)
+        remaining_days = int(projection.get("remaining_days") or 0)
 
         if monthly_salary is None and monthly_budget is None:
             return (
@@ -291,9 +352,115 @@ class ChatAgent:
             lines.append(f"Your monthly income is {symbol}{monthly_salary:,.0f}.")
         if monthly_budget is not None:
             lines.append(f"Your monthly budget is {symbol}{monthly_budget:,.0f}.")
-        if monthly_salary is not None and monthly_budget is not None:
-            remaining = monthly_salary - monthly_budget
-            lines.append(f"Planned monthly buffer is {symbol}{remaining:,.0f}.")
+        lines.append(
+            f"Month-to-date expenses are {symbol}{month_to_date_expenses:,.0f} "
+            f"({elapsed_days}/{days_in_month} days)."
+        )
+        lines.append(
+            f"Projected month-end expenses are {symbol}{projected_monthly_expenses:,.0f} "
+            f"at current run-rate."
+        )
+        if monthly_salary is not None:
+            expected_month_end_savings = monthly_salary - projected_monthly_expenses
+            lines.append(
+                "Expected month-end savings (income - projected expenses): "
+                f"{self._format_signed_amount(expected_month_end_savings, symbol)}."
+            )
+            current_savings_to_date = monthly_salary - month_to_date_expenses
+            lines.append(
+                "Current savings if month ended today: "
+                f"{self._format_signed_amount(current_savings_to_date, symbol)}."
+            )
+        if monthly_budget is not None:
+            projected_budget_delta = monthly_budget - projected_monthly_expenses
+            lines.append(
+                "Projected budget variance: "
+                f"{self._format_signed_amount(projected_budget_delta, symbol)} "
+                f"({remaining_days} days left)."
+            )
+        return " ".join(lines)
+
+    async def _build_savings_advisory_response(
+        self,
+        user_id: str,
+        currency_code: str,
+    ) -> str:
+        """
+        Build actionable savings advice using live month-to-date category trends.
+        """
+        symbol = get_currency_symbol(currency_code)
+        financial = await self.context.load_financial_profile(user_id)
+        projection = await self.context.get_current_month_projection(user_id)
+
+        monthly_salary = self._safe_number(financial.get("monthly_salary"))
+        days_in_month = int(projection.get("days_in_month") or 30)
+        elapsed_days = max(1, int(projection.get("elapsed_days") or 1))
+        scaling = days_in_month / elapsed_days
+
+        projected_monthly_expenses = self._safe_number(projection.get("projected_monthly_expenses")) or 0.0
+        by_category_mtd = projection.get("by_category_mtd") if isinstance(projection.get("by_category_mtd"), dict) else {}
+
+        if not by_category_mtd:
+            if monthly_salary is not None:
+                return (
+                    f"I need more transaction data for targeted savings advice. "
+                    f"With your current monthly income of {symbol}{monthly_salary:,.0f}, "
+                    "add a few expenses and I can suggest category-level cuts with exact impact."
+                )
+            return "I need more transaction data and your income to give targeted savings advice."
+
+        projected_categories: List[Dict[str, Any]] = []
+        for category, value in by_category_mtd.items():
+            amount_mtd = self._safe_number(value) or 0.0
+            projected_value = amount_mtd * scaling
+            if projected_value <= 0:
+                continue
+            projected_categories.append(
+                {
+                    "category": category,
+                    "amount_mtd": amount_mtd,
+                    "projected": projected_value,
+                }
+            )
+
+        projected_categories.sort(key=lambda row: row["projected"], reverse=True)
+        top_categories = projected_categories[:3]
+        if not top_categories:
+            return "I couldn't detect spend categories yet. Add a few categorized expenses and ask again."
+
+        recommendations = []
+        total_reduction = 0.0
+        for idx, row in enumerate(top_categories[:2]):
+            cut_pct = 0.15 if idx == 0 else 0.10
+            reducible_amount = row["projected"] * cut_pct
+            total_reduction += reducible_amount
+            recommendations.append(
+                f"{idx + 1}) {self._format_category_name(row['category'])}: cut by {int(cut_pct * 100)}% "
+                f"(projected {symbol}{row['projected']:,.0f}) to save ~{symbol}{reducible_amount:,.0f}."
+            )
+
+        top_spend_summary = ", ".join(
+            f"{self._format_category_name(row['category'])} {symbol}{row['projected']:,.0f}"
+            for row in top_categories
+        )
+
+        lines: List[str] = [
+            f"Projected month-end expenses at current run-rate: {symbol}{projected_monthly_expenses:,.0f}.",
+            f"Top projected categories: {top_spend_summary}.",
+            "Best savings moves this month:",
+            *recommendations,
+            f"Potential extra savings from these cuts: ~{symbol}{total_reduction:,.0f}.",
+        ]
+
+        if monthly_salary is not None:
+            base_savings = monthly_salary - projected_monthly_expenses
+            improved_savings = base_savings + total_reduction
+            lines.append(
+                "Expected month-end savings can move from "
+                f"{self._format_signed_amount(base_savings, symbol)} "
+                f"to {self._format_signed_amount(improved_savings, symbol)}."
+            )
+
         return " ".join(lines)
     
     @opik.track(name="chat_agent_handle", tags=["agent", "chat", "conversation"])
@@ -355,18 +522,41 @@ class ChatAgent:
             or "INR"
         )
 
-        if self._is_financial_snapshot_query(message):
+        if self._is_savings_advisory_query(message):
             reasoning_steps.append({
                 "step_type": "querying",
-                "content": "Reading latest income and budget directly from your profile in database"
+                "content": "Analyzing month-to-date category spending to generate targeted savings advice"
             })
-            response = await self._build_financial_snapshot_response(
+            response = await self._build_savings_advisory_response(
                 user_id=user_id,
                 currency_code=currency_code,
             )
             reasoning_steps.append({
                 "step_type": "insight",
-                "content": "Returned exact financial snapshot values from your saved profile"
+                "content": "Returned personalized savings actions with projected impact"
+            })
+            from .feedback import get_current_trace_id
+            trace_id = get_current_trace_id()
+            return ChatResponse(
+                response=response,
+                memory_updated=False,
+                new_fact=None,
+                trace_id=trace_id,
+                reasoning_steps=reasoning_steps,
+            )
+
+        if self._is_financial_snapshot_query(message) or self._is_savings_projection_query(message):
+            reasoning_steps.append({
+                "step_type": "querying",
+                "content": "Reading latest financial profile and month-to-date expenses from database"
+            })
+            response = await self._build_financial_metrics_response(
+                user_id=user_id,
+                currency_code=currency_code,
+            )
+            reasoning_steps.append({
+                "step_type": "insight",
+                "content": "Returned exact income, spending projection, and expected savings from live data"
             })
             from .feedback import get_current_trace_id
             trace_id = get_current_trace_id()

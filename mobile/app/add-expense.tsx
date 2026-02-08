@@ -107,11 +107,17 @@ export default function AddExpenseScreen() {
   };
 
   const handleVoicePress = () => {
-    router.push('/voice-input');
+    Keyboard.dismiss();
+    requestAnimationFrame(() => {
+      router.push('/voice-input');
+    });
   };
 
   const handleReceiptPress = () => {
-    router.push('/receipt-input' as any);
+    Keyboard.dismiss();
+    requestAnimationFrame(() => {
+      router.push('/receipt-input' as any);
+    });
   };
 
   const formatAmount = (value: string) => {
@@ -139,6 +145,7 @@ export default function AddExpenseScreen() {
           style={styles.content}
           contentContainerStyle={styles.contentContainer}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
           {/* Amount Input */}
           <View style={styles.amountContainer}>
