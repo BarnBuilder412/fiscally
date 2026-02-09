@@ -11,9 +11,11 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from app.api.deps import CurrentUser
+from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+settings = get_settings()
 
 LATEST_ARTIFACT_PATH = (
     Path(__file__).resolve().parents[4] / "eval_artifacts" / "latest.json"
@@ -47,6 +49,15 @@ class EvalLatestResponse(BaseModel):
     operational_metrics: Dict[str, float] = Field(default_factory=dict)
     notes: Optional[str] = None
     raw: Dict[str, Any] = Field(default_factory=dict)
+
+
+class OpikStatusResponse(BaseModel):
+    enabled: bool
+    project_name: Optional[str] = None
+    workspace: Optional[str] = None
+    queue_configured: Dict[str, bool] = Field(default_factory=dict)
+    online_rules_expected: list[str] = Field(default_factory=list)
+    notes: Optional[str] = None
 
 
 @router.get("/latest", response_model=EvalLatestResponse)
@@ -97,4 +108,32 @@ async def get_latest_eval_artifact(_current_user: CurrentUser):
         operational_metrics=_coerce_float_dict(operational_metrics),
         notes=payload.get("notes"),
         raw=payload,
+    )
+
+
+@router.get("/opik-status", response_model=OpikStatusResponse)
+async def get_opik_status(_current_user: CurrentUser):
+    queue_flags = {
+        "chat_quality": bool(settings.opik_chat_quality_queue_id),
+        "categorization": bool(settings.opik_categorization_queue_id),
+    }
+    enabled = bool(settings.opik_api_key)
+    notes = None
+    if enabled and not any(queue_flags.values()):
+        notes = "Opik is enabled, but no annotation queue IDs are configured."
+    elif not enabled:
+        notes = "Set OPIK_API_KEY to enable trace logging and queue automation."
+
+    return OpikStatusResponse(
+        enabled=enabled,
+        project_name=settings.opik_project_name,
+        workspace=settings.opik_workspace,
+        queue_configured=queue_flags,
+        online_rules_expected=[
+            "financial_hallucination",
+            "response_relevance",
+            "tone_appropriateness",
+            "content_safety",
+        ],
+        notes=notes,
     )

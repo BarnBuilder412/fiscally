@@ -33,6 +33,8 @@ import {
 } from '@/services/smsTracking';
 import { enableLocationAwareBudgeting } from '@/services/locationBudgeting';
 import { eventBus, Events } from '@/services/eventBus';
+import { formatCurrency } from '@/utils/currency';
+import { registerPushTokenIfPossible, unregisterPushTokenIfPossible } from '@/services/notifications';
 
 interface SettingItemProps {
   icon: string;
@@ -82,6 +84,35 @@ export default function ProfileScreen() {
   const [notifications, setNotifications] = useState(true);
   const [user, setUser] = useState<{ name: string; email: string; initials: string } | null>(null);
   const [currencyCode, setCurrencyCode] = useState('INR');
+  const [monthlyIncome, setMonthlyIncome] = useState<number | null>(null);
+  const [monthlyBudget, setMonthlyBudget] = useState<number | null>(null);
+  const [goalsCount, setGoalsCount] = useState(0);
+
+  const budgetRangeValues: Record<string, number> = {
+    below_20k: 15000,
+    '20k_40k': 30000,
+    '40k_70k': 55000,
+    '70k_100k': 85000,
+    above_100k: 120000,
+  };
+  const salaryRangeValues: Record<string, number> = {
+    below_30k: 25000,
+    '30k_75k': 52500,
+    '75k_150k': 112500,
+    above_150k: 200000,
+  };
+
+  const parseNumericAmount = (value: any): number | null => {
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+      const cleaned = value.replace(/[^0-9.-]/g, '');
+      if (!cleaned) return null;
+      const parsed = Number(cleaned);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  };
 
   const loadProfile = async () => {
     try {
@@ -94,7 +125,7 @@ export default function ProfileScreen() {
         setNotifications(localNotifications === '1');
       }
 
-      const userData = await api.getMe();
+      const userData: any = await api.getMe();
       if (userData) {
         // Name priority: 1. Top level name, 2. Profile identity name, 3. Extract from email
         let displayName = userData.name;
@@ -107,14 +138,14 @@ export default function ProfileScreen() {
           const emailName = userData.email.split('@')[0];
           displayName = emailName
             .split(/[._]/)
-            .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+            .map((part: string) => part.charAt(0).toUpperCase() + part.slice(1))
             .join(' ');
         }
 
         const finalName = displayName || 'User';
         const initials = finalName
           .split(' ')
-          .map(p => p[0])
+          .map((p: string) => p[0])
           .join('')
           .toUpperCase()
           .slice(0, 2);
@@ -129,6 +160,15 @@ export default function ProfileScreen() {
         if (profileCurrency) {
           setCurrencyCode(String(profileCurrency).toUpperCase());
         }
+        const financial = userData.profile?.financial || {};
+        const resolvedIncome = parseNumericAmount(financial.monthly_salary)
+          ?? (financial.salary_range_id ? salaryRangeValues[String(financial.salary_range_id)] ?? null : null);
+        const resolvedBudget = parseNumericAmount(financial.monthly_budget)
+          ?? (financial.budget_range_id ? budgetRangeValues[String(financial.budget_range_id)] ?? null : null);
+        setMonthlyIncome(resolvedIncome ?? null);
+        setMonthlyBudget(resolvedBudget ?? null);
+        const activeGoals = userData.goals?.active_goals;
+        setGoalsCount(Array.isArray(activeGoals) ? activeGoals.length : 0);
         setLocationBudgeting(Boolean(userData.profile?.preferences?.location_budgeting_enabled));
 
         const serverNotifications = userData.profile?.preferences?.notifications_enabled;
@@ -217,6 +257,12 @@ export default function ProfileScreen() {
     await AsyncStorage.setItem('notifications_enabled', value ? '1' : '0');
     eventBus.emit(Events.PREFERENCES_CHANGED);
 
+    if (value) {
+      await registerPushTokenIfPossible();
+    } else {
+      await unregisterPushTokenIfPossible();
+    }
+
     try {
       await api.updateProfile({
         profile: {
@@ -278,7 +324,7 @@ export default function ProfileScreen() {
             icon="wallet"
             iconColor="#22C55E"
             title="Monthly Income"
-            subtitle="Set your income range"
+            subtitle={monthlyIncome !== null ? `Current: ${formatCurrency(monthlyIncome, currencyCode)}` : 'Set your monthly income'}
             onPress={() => router.push('/preferences/income')}
           />
           <View style={styles.divider} />
@@ -286,7 +332,7 @@ export default function ProfileScreen() {
             icon="cash"
             iconColor="#3B82F6"
             title="Monthly Budget"
-            subtitle="Set your spending budget"
+            subtitle={monthlyBudget !== null ? `Current: ${formatCurrency(monthlyBudget, currencyCode)}` : 'Set your spending budget'}
             onPress={() => router.push('/preferences/budget')}
           />
           <View style={styles.divider} />
@@ -294,7 +340,7 @@ export default function ProfileScreen() {
             icon="flag"
             iconColor="#8B5CF6"
             title="Savings Goals"
-            subtitle="Manage your financial goals"
+            subtitle={goalsCount > 0 ? `${goalsCount} goal${goalsCount > 1 ? 's' : ''} active` : 'Manage your financial goals'}
             onPress={() => router.push('/preferences/goals')}
           />
         </Card>
@@ -376,6 +422,7 @@ export default function ProfileScreen() {
           activeOpacity={0.8}
           onPress={async () => {
             try {
+              await unregisterPushTokenIfPossible();
               // Clear auth tokens via API
               await api.logout();
               // Redirect to login

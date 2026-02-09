@@ -330,6 +330,14 @@ class ChatAgent:
     def _format_category_name(category: str) -> str:
         return category.replace("_", " ").strip().title()
 
+    @staticmethod
+    def _is_mutable_financial_fact(fact: Optional[str]) -> bool:
+        """Avoid persisting mutable salary/budget statements in long-term memory."""
+        if not fact:
+            return False
+        text = fact.lower()
+        return any(token in text for token in ("income", "salary", "budget", "monthly pay", "monthly income"))
+
     async def _build_financial_metrics_response(
         self,
         user_id: str,
@@ -637,12 +645,19 @@ class ChatAgent:
         if memory_result.get("has_fact"):
             new_fact = memory_result.get("fact")
             category = memory_result.get("category", "general")
-            await self.context.add_memory_fact(user_id, new_fact, category)
-            memory_updated = True
-            reasoning_steps.append({
-                "step_type": "memory",
-                "content": f"Remembered: {new_fact}"
-            })
+            if self._is_mutable_financial_fact(new_fact):
+                reasoning_steps.append({
+                    "step_type": "memory",
+                    "content": "Skipped storing mutable income/budget fact to avoid stale profile context"
+                })
+                new_fact = None
+            else:
+                await self.context.add_memory_fact(user_id, new_fact, category)
+                memory_updated = True
+                reasoning_steps.append({
+                    "step_type": "memory",
+                    "content": f"Remembered: {new_fact}"
+                })
         
         # Final insight step
         reasoning_steps.append({

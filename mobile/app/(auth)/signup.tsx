@@ -20,6 +20,7 @@ import {
 } from '@/constants/theme';
 import { Button, Input } from '@/components';
 import { api } from '@/services/api';
+import { registerPushTokenIfPossible } from '@/services/notifications';
 
 export default function SignupScreen() {
   const router = useRouter();
@@ -57,6 +58,7 @@ export default function SignupScreen() {
 
     try {
       await api.signup(email, password, name);
+      await registerPushTokenIfPossible();
       router.replace('/onboarding');
     } catch (err: any) {
       setErrors({

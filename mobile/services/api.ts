@@ -140,6 +140,24 @@ class ApiClient {
     });
   }
 
+  // Notifications
+  async registerPushToken(
+    token: string,
+    platform: 'ios' | 'android' | 'web' | 'unknown' = 'unknown'
+  ): Promise<{ success: boolean; active_token_count: number; message: string }> {
+    return this.request('/api/v1/notifications/register-token', {
+      method: 'POST',
+      body: JSON.stringify({ token, platform }),
+    });
+  }
+
+  async unregisterPushToken(token: string): Promise<{ success: boolean; active_token_count: number; message: string }> {
+    return this.request('/api/v1/notifications/unregister-token', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    });
+  }
+
   // Transactions
   async getTransactions(params?: {
     limit?: number;
@@ -513,7 +531,16 @@ class ApiClient {
   // Helper to check if user is authenticated
   async isAuthenticated(): Promise<boolean> {
     const token = await this.getAccessToken();
-    return !!token;
+    if (!token) {
+      return false;
+    }
+    try {
+      await this.getMe();
+      return true;
+    } catch {
+      await this.clearTokens();
+      return false;
+    }
   }
 }
 

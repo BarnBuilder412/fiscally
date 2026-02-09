@@ -12,11 +12,44 @@ import opik
 import logging
 from typing import Optional
 
+from app.config import get_settings
+
 logger = logging.getLogger(__name__)
 
 
 # Initialize Opik client
 client = opik.Opik()
+settings = get_settings()
+
+QUEUE_ID_MAP = {
+    "chat_quality": settings.opik_chat_quality_queue_id,
+    "categorization": settings.opik_categorization_queue_id,
+}
+
+
+def _enqueue_trace(trace_id: str, queue_key: str) -> bool:
+    """Best-effort enqueue to an Opik annotation queue if configured."""
+    queue_id = QUEUE_ID_MAP.get(queue_key)
+    if not trace_id or not queue_id:
+        return False
+    try:
+        if hasattr(client, "add_traces_to_annotation_queue"):
+            client.add_traces_to_annotation_queue(
+                queue_id=queue_id,
+                trace_ids=[trace_id],
+            )
+            return True
+        if hasattr(client, "add_traces_to_queue"):
+            client.add_traces_to_queue(
+                queue_id=queue_id,
+                trace_ids=[trace_id],
+            )
+            return True
+        logger.info("Opik queue API not available on current SDK for queue_key=%s", queue_key)
+        return False
+    except Exception:
+        logger.warning("Failed to add trace %s to Opik queue=%s", trace_id, queue_key, exc_info=True)
+        return False
 
 
 def log_category_correction(
@@ -65,8 +98,10 @@ def log_category_correction(
             }]
         )
         
+        if score == 0.0:
+            _enqueue_trace(trace_id, "categorization")
         return True
-    except Exception as e:
+    except Exception:
         logger.warning("Failed to log category correction feedback", exc_info=True)
         return False
 
@@ -109,7 +144,7 @@ def log_spend_class_correction(
             }]
         )
         return True
-    except Exception as e:
+    except Exception:
         logger.warning("Failed to log spend class correction feedback", exc_info=True)
         return False
 
@@ -147,8 +182,10 @@ def log_chat_feedback(
             }]
         )
         
+        if score == 0.0:
+            _enqueue_trace(trace_id, "chat_quality")
         return True
-    except Exception as e:
+    except Exception:
         logger.warning("Failed to log chat feedback", exc_info=True)
         return False
 
@@ -180,7 +217,7 @@ def log_anomaly_feedback(
         )
         
         return True
-    except Exception as e:
+    except Exception:
         logger.warning("Failed to log anomaly feedback", exc_info=True)
         return False
 

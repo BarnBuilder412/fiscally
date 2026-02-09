@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, transactions, profile, chat, goals, insights, evals
+from app.api.v1.endpoints import auth, transactions, profile, chat, goals, insights, evals, notifications
 
 api_router = APIRouter()
 
@@ -24,3 +24,6 @@ api_router.include_router(goals.router, prefix="/goals", tags=["Goals"])
 
 # Evaluation and quality artifacts
 api_router.include_router(evals.router, prefix="/evals", tags=["Evaluation"])
+
+# Push notification token management
+api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])

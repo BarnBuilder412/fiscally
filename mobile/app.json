@@ -36,11 +36,7 @@
       },
       "package": "com.fiscally.app",
       "permissions": [
-        "android.permission.RECEIVE_SMS",
-        "android.permission.READ_SMS",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.CAMERA",
-        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.POST_NOTIFICATIONS",
         "android.permission.RECEIVE_SMS",
         "android.permission.READ_SMS",
         "android.permission.RECORD_AUDIO",
@@ -59,7 +55,8 @@
       "expo-image-picker",
       "expo-location",
       "expo-document-picker",
-      "expo-font"
+      "expo-font",
+      "expo-notifications"
     ],
     "experiments": {
       "typedRoutes": true

@@ -20,6 +20,7 @@ import {
 } from '@/constants/theme';
 import { Button, Input } from '@/components';
 import { api } from '@/services/api';
+import { registerPushTokenIfPossible } from '@/services/notifications';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -53,6 +54,7 @@ export default function LoginScreen() {
 
     try {
       await api.login(email, password);
+      await registerPushTokenIfPossible();
       router.replace('/(tabs)');
     } catch (err: any) {
       setErrors({

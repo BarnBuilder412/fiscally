@@ -33,6 +33,15 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
 
+    # Opik
+    opik_api_key: str | None = None
+    opik_project_name: str = "fiscally"
+    opik_workspace: str | None = None
+    opik_chat_quality_queue_id: str | None = None
+    opik_categorization_queue_id: str | None = None
+    expo_push_access_token: str | None = None
+    notification_min_interval_minutes: int = 60
+
     @field_validator("environment")
     @classmethod
     def normalize_environment(cls, value: str) -> str:

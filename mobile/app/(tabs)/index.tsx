@@ -29,6 +29,43 @@ import { eventBus, Events } from '@/services/eventBus';
 import { formatCurrency as formatMoney, getCurrencySymbol, getLocaleForCurrency } from '@/utils/currency';
 
 const { width } = Dimensions.get('window');
+const BUDGET_RANGE_VALUES: Record<string, number> = {
+  below_20k: 15000,
+  '20k_40k': 30000,
+  '40k_70k': 55000,
+  '70k_100k': 85000,
+  above_100k: 120000,
+};
+const INCOME_RANGE_VALUES: Record<string, number> = {
+  below_30k: 25000,
+  '30k_75k': 52500,
+  '75k_150k': 112500,
+  above_150k: 200000,
+};
+
+const parseNumericAmount = (value: any): number | null => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    if (/[a-zA-Z]/.test(value)) return null;
+    const cleaned = value.replace(/[^0-9.-]/g, '');
+    if (!cleaned) return null;
+    const parsed = Number(cleaned);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const resolveAmount = (
+  explicitValue: any,
+  rangeId: string | null | undefined,
+  rangeValues: Record<string, number>
+): number | null => {
+  const explicit = parseNumericAmount(explicitValue);
+  if (explicit !== null) return explicit;
+  if (rangeId && rangeValues[rangeId]) return rangeValues[rangeId];
+  return null;
+};
 
 // Goal card component with timeline projections
 const GoalCard = ({
@@ -259,6 +296,12 @@ export default function HomeScreen() {
   const [userBudget, setUserBudget] = useState<string | null>(null);
   const [userIncome, setUserIncome] = useState<string | null>(null);
   const [userGoalDetails, setUserGoalDetails] = useState<Record<string, any>>({});
+  const [serverFinancial, setServerFinancial] = useState<{
+    monthly_salary?: number | string | null;
+    monthly_budget?: number | string | null;
+    salary_range_id?: string | null;
+    budget_range_id?: string | null;
+  } | null>(null);
   const [insights, setInsights] = useState<{
     headline?: string;
     summary?: string;
@@ -322,6 +365,7 @@ export default function HomeScreen() {
       setUserBudget(storedBudget);
       setUserIncome(storedIncome);
       setUserGoalDetails(storedGoalDetails ? JSON.parse(storedGoalDetails) : {});
+      setServerFinancial(profileData?.profile?.financial || null);
       const profileCurrency = profileData?.profile?.identity?.currency || profileData?.profile?.currency;
       if (profileCurrency) {
         setUserCurrency(String(profileCurrency).toUpperCase());
@@ -409,35 +453,40 @@ export default function HomeScreen() {
     }).reduce((sum, t) => sum + t.amount, 0);
   };
 
-  // Calculate budget from user selection
   const getBudgetAmount = () => {
-    switch (userBudget) {
-      case 'below_20k': return 15000;
-      case '20k_40k': return 30000;
-      case '40k_70k': return 55000;
-      case '70k_100k': return 85000;
-      case 'above_100k': return 120000;
-      default: return 50000;
-    }
+    const fromGoalProgress = parseNumericAmount(goalProgress?.monthly_budget);
+    if (fromGoalProgress !== null) return fromGoalProgress;
+    const fromServer = resolveAmount(
+      serverFinancial?.monthly_budget,
+      serverFinancial?.budget_range_id,
+      BUDGET_RANGE_VALUES
+    );
+    if (fromServer !== null) return fromServer;
+    const fromLocal = resolveAmount(userBudget, userBudget, BUDGET_RANGE_VALUES);
+    if (fromLocal !== null) return fromLocal;
+    return 50000;
   };
 
   const budget = getBudgetAmount();
   const monthlySpent = getSpendingForPeriod('month');
-  const budgetPercentage = (monthlySpent / budget) * 100;
+  const budgetPercentage = budget > 0 ? (monthlySpent / budget) * 100 : 0;
   const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
   const currentDay = new Date().getDate();
   const daysRemaining = daysInMonth - currentDay;
   const remainingBudget = Math.max(budget - monthlySpent, 0);
 
-  // Calculate income amount from range
   const getIncomeAmount = () => {
-    switch (userIncome) {
-      case 'below_30k': return 25000;
-      case '30k_75k': return 52500;
-      case '75k_150k': return 112500;
-      case 'above_150k': return 200000;
-      default: return 0;
-    }
+    const fromGoalProgress = parseNumericAmount(goalProgress?.monthly_salary);
+    if (fromGoalProgress !== null) return fromGoalProgress;
+    const fromServer = resolveAmount(
+      serverFinancial?.monthly_salary,
+      serverFinancial?.salary_range_id,
+      INCOME_RANGE_VALUES
+    );
+    if (fromServer !== null) return fromServer;
+    const fromLocal = resolveAmount(userIncome, userIncome, INCOME_RANGE_VALUES);
+    if (fromLocal !== null) return fromLocal;
+    return 0;
   };
 
   const incomeAmount = getIncomeAmount();

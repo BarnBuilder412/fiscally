@@ -36,7 +36,9 @@ from app.schemas.transaction import (
 from app.ai.agents import TransactionAgent
 from app.ai.context_manager import ContextManager
 from app.ai.feedback import log_category_correction, log_spend_class_correction
+from app.ai.prompts import get_currency_symbol
 from app.services.currency_conversion import convert_amount, CurrencyConversionError
+from app.services.notifications import send_rate_limited_push
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -152,6 +154,60 @@ def _infer_category_from_receipt_keywords(
     return None
 
 
+async def _dispatch_transaction_push_notification(
+    db: Session,
+    current_user: CurrentUser,
+    transaction: Transaction,
+    notification_type: Optional[str],
+) -> None:
+    """Send high-signal push notifications with server-side rate limiting."""
+    if notification_type not in {"anomaly", "budget_warning"}:
+        return
+
+    try:
+        amount = float(transaction.amount)
+    except (TypeError, ValueError):
+        amount = 0.0
+    currency_code = (transaction.currency or "INR").upper()
+    symbol = get_currency_symbol(currency_code)
+
+    merchant = (transaction.merchant or "Unknown merchant").strip()
+    if notification_type == "anomaly":
+        title = "Unusual transaction"
+        body = (
+            transaction.anomaly_reason
+            or f"{symbol}{amount:,.0f} at {merchant} looks unusual."
+        )
+    else:
+        title = "Budget warning"
+        body = (
+            f"Recent spend {symbol}{amount:,.0f} at {merchant}. "
+            "You are close to this month's budget."
+        )
+
+    try:
+        await send_rate_limited_push(
+            db,
+            current_user,
+            notification_type=notification_type,
+            title=title,
+            body=body,
+            data={
+                "type": notification_type,
+                "transaction_id": str(transaction.id),
+                "screen": "activity",
+            },
+        )
+    except Exception:
+        logger.warning(
+            "Push dispatch failed user_id=%s transaction_id=%s type=%s",
+            current_user.id,
+            transaction.id,
+            notification_type,
+            exc_info=True,
+        )
+
+
 @router.post("", response_model=TransactionResponse, status_code=status.HTTP_201_CREATED)
 async def create_transaction(
     request: TransactionCreate,
@@ -193,6 +249,7 @@ async def create_transaction(
     is_anomaly = False
     anomaly_reason = None
     opik_trace_id = None
+    notification_type = None
     
     # Run AI processing for anomaly + spend-class enrichment.
     try:
@@ -214,6 +271,8 @@ async def create_transaction(
             spend_class_reason = "User selected spend class"
             spend_class_confidence = "1.0"
         opik_trace_id = result.opik_trace_id
+        if result.notification_needed:
+            notification_type = result.notification_type
     except Exception:
         # Log but don't fail - graceful degradation
         logger.exception(
@@ -248,6 +307,13 @@ async def create_transaction(
     db.add(transaction)
     db.commit()
     db.refresh(transaction)
+
+    await _dispatch_transaction_push_notification(
+        db,
+        current_user,
+        transaction,
+        notification_type=notification_type,
+    )
     
     return transaction
 
@@ -404,6 +470,7 @@ async def ingest_sms_batch(
             is_anomaly = False
             anomaly_reason = None
             opik_trace_id = None
+            notification_type = None
 
             try:
                 ai_result = await agent.process(
@@ -427,6 +494,8 @@ async def ingest_sms_batch(
                 is_anomaly = ai_result.is_anomaly
                 anomaly_reason = ai_result.anomaly_reason
                 opik_trace_id = ai_result.opik_trace_id
+                if ai_result.notification_needed:
+                    notification_type = ai_result.notification_type
             except Exception:
                 logger.warning(
                     "SMS batch AI enrichment failed for user_id=%s dedupe_key=%s",
@@ -457,6 +526,12 @@ async def ingest_sms_batch(
             db.add(created)
             db.commit()
             db.refresh(created)
+            await _dispatch_transaction_push_notification(
+                db,
+                current_user,
+                created,
+                notification_type=notification_type,
+            )
             created_count += 1
             created_transaction_ids.append(str(created.id))
         except Exception:
@@ -1090,6 +1165,13 @@ async def parse_receipt_transaction(
     db.add(created)
     db.commit()
     db.refresh(created)
+
+    await _dispatch_transaction_push_notification(
+        db,
+        current_user,
+        created,
+        notification_type=ai_result.notification_type if ai_result.notification_needed else None,
+    )
 
     response_reason = parsed.get("reason")
     if conversion_reason:

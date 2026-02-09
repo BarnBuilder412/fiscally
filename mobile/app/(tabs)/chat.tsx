@@ -12,7 +12,7 @@ import {
   Platform,
   Animated,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import {
   Colors,
@@ -138,6 +138,7 @@ const ReasoningStepsDisplay = ({ steps }: { steps: ReasoningStep[] }) => {
 
 export default function ChatScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -146,8 +147,11 @@ export default function ChatScreen() {
   const scrollViewRef = useRef<ScrollView>(null);
 
   const handleSend = async (text?: string) => {
-    const messageText = text || inputText.trim();
-    if (!messageText) return;
+    const messageText = text ? text.trim() : inputText.trim();
+    if (!messageText) {
+      if (!text) setInputText('');
+      return;
+    }
 
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
@@ -220,7 +224,7 @@ export default function ChatScreen() {
 
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={{ marginRight: Spacing.md }}>
@@ -235,14 +239,18 @@ export default function ChatScreen() {
 
       <KeyboardAvoidingView
         style={styles.keyboardView}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 110 : 0}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 96 : 82}
       >
         <ScrollView
           ref={scrollViewRef}
           style={styles.messagesContainer}
-          contentContainerStyle={styles.messagesContent}
+          contentContainerStyle={[
+            styles.messagesContent,
+            { paddingBottom: 84 + Math.max(insets.bottom, Spacing.sm) },
+          ]}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
           {/* Suggested Questions */}
           {messages.length <= 1 && (
@@ -350,7 +358,7 @@ export default function ChatScreen() {
         </ScrollView>
 
         {/* Input */}
-        <View style={styles.inputContainer}>
+        <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, Spacing.sm) }]}>
           <TextInput
             style={styles.input}
             placeholder="Ask anything about your money..."
@@ -505,7 +513,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
     borderTopWidth: 1,
     borderTopColor: Colors.primary + '1A',
-    marginBottom: 60, // Add space for bottom tab bar
   },
   input: {
     flex: 1,

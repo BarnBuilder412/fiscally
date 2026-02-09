@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
+    Alert,
     View,
     Text,
     StyleSheet,
@@ -80,10 +81,6 @@ export default function GoalsPreferencesScreen() {
     const saveGoals = async () => {
         setSaving(true);
 
-        // Save locally first
-        await AsyncStorage.setItem('user_goals', JSON.stringify(selectedGoals));
-        await AsyncStorage.setItem('user_goal_details', JSON.stringify(goalDetails));
-
         // Sync to backend for goal progress tracking - wait for completion
         try {
             const goalsToSync = selectedGoals.map((goalId, index) => {
@@ -99,18 +96,21 @@ export default function GoalsPreferencesScreen() {
             });
             const result = await api.syncGoals(goalsToSync);
             console.log('[GoalsScreen] Backend sync successful, synced:', result.synced_count);
+            await AsyncStorage.setItem('user_goals', JSON.stringify(selectedGoals));
+            await AsyncStorage.setItem('user_goal_details', JSON.stringify(goalDetails));
+            console.log('[GoalsScreen] Emitting PREFERENCES_CHANGED event');
+            eventBus.emit(Events.PREFERENCES_CHANGED);
+            setSaving(false);
+            router.back();
         } catch (error) {
             console.warn('[GoalsScreen] Failed to sync goals to backend:', error);
+            setSaving(false);
+            Alert.alert(
+                'Save failed',
+                'Goals could not be synced to backend. Please try again.'
+            );
+            return;
         }
-
-        console.log('[GoalsScreen] Emitting PREFERENCES_CHANGED event');
-        eventBus.emit(Events.PREFERENCES_CHANGED);
-
-        setSaving(false);
-        // Give time for the event to propagate and data to refresh before navigating back
-        setTimeout(() => {
-            router.back();
-        }, 300);
     };
 
     return (

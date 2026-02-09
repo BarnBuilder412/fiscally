@@ -49,6 +49,33 @@ def _coerce_profile_financial(profile: dict[str, Any]) -> dict[str, Any]:
     return profile
 
 
+def _drop_financial_memory_facts(memory: dict[str, Any] | None) -> tuple[dict[str, Any], bool]:
+    """Remove stale memory facts about salary/income/budget after profile financial updates."""
+    if not isinstance(memory, dict):
+        return {"facts": [], "conversation_summary": ""}, False
+
+    facts = memory.get("facts")
+    if not isinstance(facts, list):
+        return memory, False
+
+    changed = False
+    filtered_facts = []
+    for fact in facts:
+        text = ""
+        if isinstance(fact, dict):
+            text = str(fact.get("fact") or fact.get("content") or fact.get("text") or "").lower()
+        elif isinstance(fact, str):
+            text = fact.lower()
+        if any(token in text for token in ("income", "salary", "budget", "monthly pay", "monthly income")):
+            changed = True
+            continue
+        filtered_facts.append(fact)
+
+    if changed:
+        memory["facts"] = filtered_facts
+    return memory, changed
+
+
 @router.get("", response_model=UserResponse)
 async def get_profile(current_user: CurrentUser):
     """
@@ -84,11 +111,17 @@ async def update_profile(
             else:
                 existing_profile[key] = value
 
+        financial_updated = "financial" in request.profile
         existing_profile = _coerce_profile_financial(existing_profile)
         existing_profile = apply_profile_location_defaults(existing_profile)
         
         current_user.profile = existing_profile
         flag_modified(current_user, "profile")
+        if financial_updated:
+            cleaned_memory, memory_changed = _drop_financial_memory_facts(current_user.memory or {})
+            if memory_changed:
+                current_user.memory = cleaned_memory
+                flag_modified(current_user, "memory")
         db.commit()
         db.refresh(current_user)
     

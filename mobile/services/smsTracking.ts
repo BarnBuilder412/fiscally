@@ -26,6 +26,7 @@ export type SmsTrackingStartResult = {
 const SMS_TRACKING_ENABLED_KEY = 'sms_tracking_enabled';
 const SMS_DEDUPE_CACHE_KEY = 'sms_tracking_dedupe_cache';
 const SMS_LAST_SYNC_TS_KEY = 'sms_last_sync_ts';
+const SMS_BASELINE_INITIALIZED_KEY = 'sms_tracking_baseline_initialized';
 const SMS_POLL_INTERVAL_MS = 3 * 60 * 1000;
 const MAX_CACHE_SIZE = 400;
 
@@ -143,6 +144,26 @@ const getLastSyncTimestamp = async (): Promise<number> => {
 
 const saveLastSyncTimestamp = async (timestampMs: number) => {
   await AsyncStorage.setItem(SMS_LAST_SYNC_TS_KEY, String(timestampMs));
+};
+
+const ensureSyncBaseline = async (): Promise<boolean> => {
+  const [baselineFlag, rawLastSync] = await Promise.all([
+    AsyncStorage.getItem(SMS_BASELINE_INITIALIZED_KEY),
+    AsyncStorage.getItem(SMS_LAST_SYNC_TS_KEY),
+  ]);
+  const parsedLastSync = Number(rawLastSync);
+  const hasValidLastSync = Number.isFinite(parsedLastSync) && parsedLastSync > 0;
+
+  if (baselineFlag === '1' && hasValidLastSync) {
+    return false;
+  }
+
+  const now = Date.now();
+  await Promise.all([
+    AsyncStorage.setItem(SMS_BASELINE_INITIALIZED_KEY, '1'),
+    saveLastSyncTimestamp(now),
+  ]);
+  return true;
 };
 
 const parseSmsToTransaction = (sms: SmsRecord): ParsedSmsTransaction | null => {
@@ -314,11 +335,14 @@ export const startSmsTracking = async (): Promise<SmsTrackingStartResult> => {
   await AsyncStorage.setItem(SMS_TRACKING_ENABLED_KEY, 'true');
 
   if (pollTimer) clearInterval(pollTimer);
-  try {
-    await syncSmsTransactions();
-  } catch (error) {
-    console.warn('Initial SMS sync failed:', error);
-    return { started: false, reason: 'sync_failed' };
+  const baselineJustInitialized = await ensureSyncBaseline();
+  if (!baselineJustInitialized) {
+    try {
+      await syncSmsTransactions();
+    } catch (error) {
+      console.warn('Initial SMS sync failed:', error);
+      return { started: false, reason: 'sync_failed' };
+    }
   }
   pollTimer = setInterval(() => {
     syncSmsTransactions().catch((error) => {

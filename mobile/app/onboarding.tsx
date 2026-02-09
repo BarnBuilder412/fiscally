@@ -152,19 +152,24 @@ export default function OnboardingScreen() {
     try {
       await AsyncStorage.setItem('is_onboarded', 'true');
 
-      // Save exact income and budget
-      if (exactIncome) {
-        await AsyncStorage.setItem('user_income', exactIncome);
+      const parsedIncome = exactIncome ? parseInt(exactIncome.replace(/[^0-9]/g, ''), 10) : NaN;
+      const parsedBudget = exactBudget ? parseInt(exactBudget.replace(/[^0-9]/g, ''), 10) : NaN;
+      const normalizedIncome = Number.isFinite(parsedIncome) ? parsedIncome : undefined;
+      const normalizedBudget = Number.isFinite(parsedBudget) ? parsedBudget : undefined;
+
+      // Save normalized exact values for local fallback.
+      if (normalizedIncome) {
+        await AsyncStorage.setItem('user_income', String(normalizedIncome));
       }
-      if (exactBudget) {
-        await AsyncStorage.setItem('user_budget', exactBudget);
+      if (normalizedBudget) {
+        await AsyncStorage.setItem('user_budget', String(normalizedBudget));
       }
 
       // Sync financial profile to backend
       try {
         await api.updateFinancialProfile({
-          monthly_salary: exactIncome ? parseInt(exactIncome.replace(/,/g, '')) : undefined,
-          monthly_budget: exactBudget ? parseInt(exactBudget.replace(/,/g, '')) : undefined,
+          monthly_salary: normalizedIncome,
+          monthly_budget: normalizedBudget,
         });
         console.log('Financial profile synced');
       } catch (syncError) {

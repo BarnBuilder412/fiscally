@@ -79,7 +79,7 @@ async def chat(
                 )
                 for step in result.reasoning_steps
             ]
-        
+
         return ChatResponse(
             response=result.response,
             memory_updated=result.memory_updated,

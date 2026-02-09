@@ -7,6 +7,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { Colors, Spacing } from '@/constants/theme';
 import { AnimatedSplash } from '@/components/AnimatedSplash';
 import { restoreSmsTracking } from '@/services/smsTracking';
+import { registerPushTokenIfPossible } from '@/services/notifications';
 import '../global.css';
 
 import { LogBox } from 'react-native';
@@ -44,6 +45,11 @@ export default function RootLayout() {
     if (isAppReady) {
       SplashScreen.hideAsync();
     }
+  }, [isAppReady]);
+
+  useEffect(() => {
+    if (!isAppReady) return;
+    registerPushTokenIfPossible();
   }, [isAppReady]);
 
   if (!isAppReady) {
