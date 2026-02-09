@@ -15,7 +15,6 @@ export interface Transaction {
   merchant?: string;
   category: string;
   note?: string;
-  raw_sms?: string;
   source: 'manual' | 'voice' | 'sms' | 'receipt';
   spend_class?: 'need' | 'want' | 'luxury';
   spend_class_confidence?: string;
@@ -43,6 +42,9 @@ export interface ChatMessage {
   content: string;
   timestamp: string;
   trace_id?: string;
+  response_confidence?: number;
+  fallback_used?: boolean;
+  fallback_reason?: string;
   reasoning_steps?: ReasoningStep[];
 }
 

@@ -190,7 +190,6 @@ class ApiClient {
     source?: 'manual' | 'voice' | 'sms' | 'receipt';
     spend_class?: 'need' | 'want' | 'luxury';
     transaction_at?: string;
-    raw_sms?: string;
   }): Promise<Transaction> {
     const transaction = await this.request<any>('/api/v1/transactions', {
       method: 'POST',
@@ -239,8 +238,8 @@ class ApiClient {
       merchant?: string;
       category?: string;
       transaction_at?: string;
-      raw_sms?: string;
       sms_sender?: string;
+      sms_signature?: string;
       dedupe_key?: string;
     }>
   ): Promise<{
@@ -264,6 +263,8 @@ class ApiClient {
     needs_clarification: boolean;
     clarification_question?: string;
     transcript?: string;
+    fallback_used?: boolean;
+    parse_source?: 'llm_parse' | 'fallback';
   }> {
     const formData = new FormData();
     const extension = (audioUri.split('.').pop() || 'm4a').split('?')[0].toLowerCase();
@@ -366,6 +367,9 @@ class ApiClient {
     memory_updated?: boolean;
     new_fact?: string;
     trace_id?: string;
+    response_confidence?: number;
+    fallback_used?: boolean;
+    fallback_reason?: string;
     reasoning_steps?: Array<{
       step_type: string;
       content: string;
@@ -396,6 +400,7 @@ class ApiClient {
     period_days?: number;
     total_spent?: number;
     transaction_count?: number;
+    impact_counters?: Record<string, number>;
     alerts?: Array<{
       id: string;
       type: 'anomaly' | 'budget_warning' | 'budget_exceeded' | 'goal_milestone' | 'goal_at_risk' | 'tip';
@@ -406,6 +411,21 @@ class ApiClient {
     }>;
   }> {
     return this.request('/api/v1/insights');
+  }
+
+  async getLatestEvalArtifact(): Promise<{
+    available: boolean;
+    source_path: string;
+    generated_at?: string;
+    experiment?: string;
+    gate_passed?: boolean;
+    metrics?: Record<string, number>;
+    thresholds?: Record<string, number>;
+    deltas?: Record<string, number>;
+    notes?: string;
+    raw?: Record<string, any>;
+  }> {
+    return this.request('/api/v1/evals/latest');
   }
 
   // Goals

@@ -110,7 +110,8 @@ class Transaction(Base):
     
     # Source tracking
     source = Column(String(50), nullable=False)  # 'manual', 'voice', 'sms', 'receipt'
-    raw_sms = Column(Text, nullable=True)  # Original SMS text (if source='sms')
+    # Legacy field kept for backward compatibility; raw SMS should not be persisted.
+    raw_sms = Column(Text, nullable=True)
     
     # AI processing metadata
     ai_category_confidence = Column(String(10), nullable=True)  # 0.0-1.0

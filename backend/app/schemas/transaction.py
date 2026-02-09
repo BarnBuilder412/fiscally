@@ -5,7 +5,8 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional, Literal, Any
 from uuid import UUID
-from pydantic import BaseModel, Field, field_validator
+import re
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # Valid transaction sources
@@ -41,7 +42,7 @@ class TransactionCreate(BaseModel):
     raw_sms: Optional[str] = Field(
         None,
         max_length=4000,
-        description="Original SMS body when source='sms'",
+        description="Deprecated. Raw SMS must remain on-device and is not accepted by the backend.",
     )
     source: TransactionSource = Field(..., description="How transaction was added: manual, voice, sms, or receipt")
     spend_class: Optional[SpendClass] = Field(
@@ -65,6 +66,14 @@ class TransactionCreate(BaseModel):
         if v is not None and v not in VALID_CATEGORIES:
             raise ValueError(f"Invalid category. Must be one of: {', '.join(VALID_CATEGORIES)}")
         return v
+
+    @model_validator(mode="after")
+    def validate_sms_privacy(self) -> "TransactionCreate":
+        if self.source == "sms" and self.raw_sms:
+            raise ValueError(
+                "raw_sms is not accepted for SMS transactions. Parse SMS on-device and send only structured fields."
+            )
+        return self
     
     class Config:
         json_schema_extra = {
@@ -174,6 +183,8 @@ class VoiceTransactionResponse(BaseModel):
     needs_clarification: bool = False
     clarification_question: Optional[str] = None
     transcript: Optional[str] = None  # The actual spoken text from transcription
+    fallback_used: bool = False
+    parse_source: Literal["llm_parse", "fallback"] = "llm_parse"
 
 
 class ReceiptTransactionResponse(BaseModel):
@@ -200,9 +211,18 @@ class SmsTransactionIngestItem(BaseModel):
     merchant: Optional[str] = Field(default=None, max_length=255)
     category: Optional[str] = Field(default=None, max_length=100)
     transaction_at: Optional[datetime] = None
-    raw_sms: Optional[str] = Field(default=None, max_length=4000)
     sms_sender: Optional[str] = Field(default=None, max_length=100)
+    sms_signature: Optional[str] = Field(
+        default=None,
+        max_length=128,
+        description="Client-generated hash/signature for idempotent SMS ingest (recommended).",
+    )
     dedupe_key: Optional[str] = Field(default=None, max_length=255)
+    raw_sms: Optional[str] = Field(
+        default=None,
+        max_length=4000,
+        description="Deprecated. Raw SMS must remain on-device and is not accepted.",
+    )
 
     @field_validator("amount")
     @classmethod
@@ -217,6 +237,26 @@ class SmsTransactionIngestItem(BaseModel):
         if v is not None and v not in VALID_CATEGORIES:
             raise ValueError(f"Invalid category. Must be one of: {', '.join(VALID_CATEGORIES)}")
         return v
+
+    @field_validator("sms_signature")
+    @classmethod
+    def validate_sms_signature(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        normalized = v.strip().lower()
+        if not normalized:
+            return None
+        if not re.fullmatch(r"[a-f0-9]{16,128}", normalized):
+            raise ValueError("sms_signature must be a hex hash (16-128 chars).")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_privacy_and_signature(self) -> "SmsTransactionIngestItem":
+        if self.raw_sms:
+            raise ValueError("raw_sms is not accepted. Keep SMS content on-device.")
+        if not self.sms_signature and not self.dedupe_key:
+            raise ValueError("Provide sms_signature (recommended) or dedupe_key for idempotent ingest.")
+        return self
 
 
 class SmsBatchIngestRequest(BaseModel):

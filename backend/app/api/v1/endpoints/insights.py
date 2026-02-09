@@ -1,5 +1,6 @@
 """Dedicated insights endpoints (/api/v1/insights)."""
 from datetime import datetime, timedelta
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -13,6 +14,7 @@ from app.ai.context_manager import ContextManager
 from app.ai.prompts import get_currency_symbol
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _build_insight_alerts(
@@ -127,6 +129,29 @@ def _build_insight_alerts(
     return alerts[:3]
 
 
+def _build_impact_counters(
+    transactions: list[Transaction],
+    goal_progress: dict,
+) -> dict[str, float]:
+    total_spend = sum(float(tx.amount) for tx in transactions)
+    luxury_spend = sum(
+        float(tx.amount) for tx in transactions if (tx.spend_class or "").lower() == "luxury"
+    )
+    goals = goal_progress.get("goals") or []
+    goals_on_track = sum(1 for goal in goals if goal.get("on_track", True))
+    goals_at_risk = sum(1 for goal in goals if not goal.get("on_track", True))
+    anomalies_detected = sum(1 for tx in transactions if tx.is_anomaly)
+
+    return {
+        "anomalies_detected": float(anomalies_detected),
+        "budget_used_percentage": float(goal_progress.get("budget_used_percentage") or 0),
+        "goals_on_track": float(goals_on_track),
+        "goals_at_risk": float(goals_at_risk),
+        "projected_monthly_savings": float(goal_progress.get("monthly_savings") or 0),
+        "luxury_share_percentage": (luxury_spend / total_spend * 100.0) if total_spend > 0 else 0.0,
+    }
+
+
 @router.get("", response_model=InsightResponse)
 async def get_insights(
     current_user: CurrentUser,
@@ -160,6 +185,7 @@ async def get_insights(
         )
         currency_symbol = get_currency_symbol(currency_code)
         alerts = _build_insight_alerts(transactions, goal_progress, currency_symbol)
+        impact_counters = _build_impact_counters(transactions, goal_progress)
 
         return InsightResponse(
             headline=result.get("headline", "Your Spending Summary"),
@@ -169,9 +195,11 @@ async def get_insights(
             total_spent=total_spent,
             transaction_count=len(transactions),
             alerts=alerts,
+            impact_counters=impact_counters,
         )
-    except Exception as exc:
+    except Exception:
+        logger.exception("Insight generation failed for user_id=%s", current_user.id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Insight generation failed: {exc}",
-        ) from exc
+            detail="Insight generation failed. Please try again shortly.",
+        )

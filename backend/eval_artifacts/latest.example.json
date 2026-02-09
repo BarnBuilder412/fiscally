@@ -1,0 +1,35 @@
+{
+  "generated_at": "2026-02-08T20:00:00Z",
+  "experiment": "financial-health-baseline-vs-challenger",
+  "gate_passed": true,
+  "metrics": {
+    "categorization_accuracy": 0.91,
+    "chat_helpfulness": 0.87,
+    "voice_parsing_accuracy": 0.89,
+    "spend_class_accuracy": 0.83,
+    "receipt_parsing_accuracy": 0.85,
+    "anomaly_detection_accuracy": 0.84
+  },
+  "thresholds": {
+    "categorization_accuracy": 0.85,
+    "chat_helpfulness": 0.80,
+    "voice_parsing_accuracy": 0.82,
+    "spend_class_accuracy": 0.75,
+    "receipt_parsing_accuracy": 0.78,
+    "anomaly_detection_accuracy": 0.80
+  },
+  "deltas": {
+    "categorization_accuracy": 0.04,
+    "chat_helpfulness": 0.03,
+    "voice_parsing_accuracy": 0.02,
+    "anomaly_detection_accuracy": 0.01
+  },
+  "operational_metrics": {
+    "fallback_rate": 0.07,
+    "chat_feedback_score": 0.81,
+    "feedback_sample_size": 62
+  },
+  "readiness_score": 9.33,
+  "readiness_target": 9.2,
+  "notes": "Challenger prompt variant improved core metrics and passed release/readiness gate."
+}

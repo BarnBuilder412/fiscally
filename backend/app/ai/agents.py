@@ -7,6 +7,7 @@ Instrumented with Opik for observability.
 
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
+import logging
 import uuid
 import opik
 from datetime import datetime, timedelta
@@ -14,6 +15,8 @@ from datetime import datetime, timedelta
 from .llm_client import llm_client
 from .context_manager import ContextManager, UserInsight
 from .prompts import get_currency_symbol
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -42,6 +45,9 @@ class ChatResponse:
     memory_updated: bool
     new_fact: Optional[str]
     trace_id: Optional[str] = None
+    response_confidence: Optional[float] = None
+    fallback_used: bool = False
+    fallback_reason: Optional[str] = None
     reasoning_steps: Optional[List[Dict[str, Any]]] = None  # Chain-of-thought steps
 
 
@@ -114,8 +120,12 @@ class TransactionAgent:
             spend_class = spend_classification.get("spend_class")
             spend_class_confidence = spend_classification.get("confidence")
             spend_class_reason = spend_classification.get("reason")
-        except Exception as exc:
-            print(f"Spending class classification failed: {exc}")
+        except Exception:
+            logger.warning(
+                "Spending class classification failed for user_id=%s",
+                user_id,
+                exc_info=True,
+            )
         
         # Step 4: Check budget impact
         budget_warning = await self._check_budget_impact(
@@ -560,6 +570,7 @@ class ChatAgent:
                 memory_updated=False,
                 new_fact=None,
                 trace_id=trace_id,
+                response_confidence=0.95,
                 reasoning_steps=reasoning_steps,
             )
 
@@ -583,6 +594,7 @@ class ChatAgent:
                 memory_updated=False,
                 new_fact=None,
                 trace_id=trace_id,
+                response_confidence=0.95,
                 reasoning_steps=reasoning_steps,
             )
 
@@ -646,6 +658,7 @@ class ChatAgent:
             memory_updated=memory_updated,
             new_fact=new_fact,
             trace_id=trace_id,
+            response_confidence=0.8,
             reasoning_steps=reasoning_steps
         )
         
@@ -1044,8 +1057,12 @@ class AlertAgent:
                     })
             if milestone_alerts:
                 alerts.append(milestone_alerts[0])
-        except Exception as exc:
-            print(f"Goal milestone alert check failed: {exc}")
+        except Exception:
+            logger.warning(
+                "Goal milestone alert check failed for user_id=%s",
+                user_id,
+                exc_info=True,
+            )
         
         # Check 4: Pattern violation (e.g., late night ordering when trying to stop)
         memory = user_context.get("memory", {})

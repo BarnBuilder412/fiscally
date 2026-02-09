@@ -182,6 +182,9 @@ export default function ChatScreen() {
         content: response.response,
         timestamp: new Date().toISOString(),
         trace_id: response.trace_id,
+        response_confidence: response.response_confidence,
+        fallback_used: response.fallback_used,
+        fallback_reason: response.fallback_reason,
         reasoning_steps: reasoningSteps,
       };
 
@@ -293,6 +296,11 @@ export default function ChatScreen() {
                   >
                     {message.content}
                   </Markdown>
+                  {message.fallback_used && (
+                    <Text style={styles.fallbackHint}>
+                      Limited response mode. Retry for a full answer.
+                    </Text>
+                  )}
                   {message.reasoning_steps && message.reasoning_steps.length > 0 && (
                     <ReasoningStepsDisplay steps={message.reasoning_steps} />
                   )}
@@ -574,6 +582,11 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     color: Colors.textSecondary,
     flex: 1,
+  },
+  fallbackHint: {
+    marginTop: Spacing.xs,
+    fontSize: FontSize.xs,
+    color: Colors.warning,
   },
   thinkingDotsRow: {
     flexDirection: 'row',

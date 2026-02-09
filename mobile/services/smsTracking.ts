@@ -8,7 +8,6 @@ type ParsedSmsTransaction = {
   merchant?: string;
   category?: string;
   transactionAt?: string;
-  rawSms?: string;
   sender?: string;
   dedupeKey?: string;
 };
@@ -92,13 +91,27 @@ const inferCategory = (merchant?: string): string => {
   return 'other';
 };
 
+const hashSignature = (value: string): string => {
+  let a = 5381;
+  let b = 52711;
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    a = ((a << 5) + a) ^ code;
+    b = ((b << 5) + b) ^ (code * 131);
+  }
+  const first = (a >>> 0).toString(16).padStart(8, '0');
+  const second = (b >>> 0).toString(16).padStart(8, '0');
+  return `${first}${second}`;
+};
+
 const createDedupKey = (sms: SmsRecord, parsed: ParsedSmsTransaction) => {
   const date = sms.date || 0;
   const sender = sms.address || '';
   const amount = parsed.amount.toFixed(2);
   const merchant = parsed.merchant || '';
   const category = parsed.category || 'other';
-  return `${date}|${sender}|${amount}|${merchant}|${category}`;
+  const canonical = `${date}|${sender}|${amount}|${merchant}|${category}`;
+  return hashSignature(canonical);
 };
 
 const getDedupeCache = async (): Promise<string[]> => {
@@ -148,7 +161,6 @@ const parseSmsToTransaction = (sms: SmsRecord): ParsedSmsTransaction | null => {
     merchant,
     category,
     transactionAt: sms.date ? new Date(sms.date).toISOString() : undefined,
-    rawSms: body || undefined,
     sender: sender || undefined,
     dedupeKey: undefined,
   };
@@ -211,8 +223,8 @@ export const syncSmsTransactions = async () => {
     merchant?: string;
     category?: string;
     transaction_at?: string;
-    raw_sms?: string;
     sms_sender?: string;
+    sms_signature?: string;
     dedupe_key?: string;
   }> = [];
   const sentKeys: string[] = [];
@@ -232,8 +244,8 @@ export const syncSmsTransactions = async () => {
       merchant: parsed.merchant,
       category: parsed.category || 'other',
       transaction_at: parsed.transactionAt,
-      raw_sms: parsed.rawSms,
       sms_sender: parsed.sender,
+      sms_signature: dedupeKey,
       dedupe_key: dedupeKey,
     });
     sentKeys.push(dedupeKey);
@@ -267,9 +279,10 @@ export const syncSmsTransactions = async () => {
           category: payload.category,
           source: 'sms',
           transaction_at: payload.transaction_at,
-          raw_sms: payload.raw_sms,
         });
-        if (payload.dedupe_key) {
+        if (payload.sms_signature) {
+          dedupeSet.add(payload.sms_signature);
+        } else if (payload.dedupe_key) {
           dedupeSet.add(payload.dedupe_key);
         }
         changed = true;

@@ -11,6 +11,7 @@ from .datasets import DatasetManager
 from .metrics import (
     VoiceParsingAccuracy,
     get_chat_metrics,
+    get_anomaly_metrics,
     get_categorization_metrics,
     get_spend_class_metrics,
     get_receipt_metrics,
@@ -32,7 +33,10 @@ def _run_async(coro):
         return asyncio.run(coro)
 
 
-def run_categorization_experiment(experiment_name: str = "categorization-eval"):
+def run_categorization_experiment(
+    experiment_name: str = "categorization-eval",
+    experiment_tags: list[str] | None = None,
+):
     """
     Run categorization evaluation experiment.
     
@@ -60,7 +64,8 @@ def run_categorization_experiment(experiment_name: str = "categorization-eval"):
         scoring_key_mapping={
             "output": "output",
             "expected_output": "expected_output"
-        }
+        },
+        experiment_tags=experiment_tags,
     )
     
     print(f"✅ Experiment complete: {experiment_name}")
@@ -69,7 +74,10 @@ def run_categorization_experiment(experiment_name: str = "categorization-eval"):
     return result
 
 
-def run_voice_parsing_experiment(experiment_name: str = "voice-parsing-eval"):
+def run_voice_parsing_experiment(
+    experiment_name: str = "voice-parsing-eval",
+    experiment_tags: list[str] | None = None,
+):
     """
     Run voice parsing evaluation experiment.
     
@@ -95,14 +103,18 @@ def run_voice_parsing_experiment(experiment_name: str = "voice-parsing-eval"):
         scoring_key_mapping={
             "output": "output",
             "expected_output": "expected_output"
-        }
+        },
+        experiment_tags=experiment_tags,
     )
     
     print(f"✅ Experiment complete: {experiment_name}")
     return result
 
 
-def run_chat_experiment(experiment_name: str = "chat-eval"):
+def run_chat_experiment(
+    experiment_name: str = "chat-eval",
+    experiment_tags: list[str] | None = None,
+):
     """
     Run chat response evaluation experiment.
     
@@ -146,14 +158,18 @@ def run_chat_experiment(experiment_name: str = "chat-eval"):
         scoring_metrics=get_chat_metrics(),
         scoring_key_mapping={
             "output": "output"
-        }
+        },
+        experiment_tags=experiment_tags,
     )
     
     print(f"✅ Experiment complete: {experiment_name}")
     return result
 
 
-def run_spend_class_experiment(experiment_name: str = "spend-class-eval"):
+def run_spend_class_experiment(
+    experiment_name: str = "spend-class-eval",
+    experiment_tags: list[str] | None = None,
+):
     """Run need/want/luxury classification evaluation."""
     from ..llm_client import llm_client
 
@@ -178,12 +194,51 @@ def run_spend_class_experiment(experiment_name: str = "spend-class-eval"):
             "output": "output",
             "expected_output": "expected_output",
         },
+        experiment_tags=experiment_tags,
     )
     print(f"✅ Experiment complete: {experiment_name}")
     return result
 
 
-def run_receipt_parsing_experiment(experiment_name: str = "receipt-parsing-eval"):
+def run_anomaly_experiment(
+    experiment_name: str = "anomaly-eval",
+    experiment_tags: list[str] | None = None,
+):
+    """Run anomaly detection evaluation."""
+    from ..llm_client import llm_client
+
+    print(f"🧪 Running experiment: {experiment_name}")
+    dataset = DatasetManager.create_anomaly_dataset()
+
+    def evaluation_task(item: Dict[str, Any]) -> Dict[str, Any]:
+        result = _run_async(
+            llm_client.detect_anomaly(
+                item["transaction"],
+                item["user_stats"],
+                user_context=item.get("user_context"),
+            )
+        )
+        return {"output": result}
+
+    result = evaluate(
+        experiment_name=experiment_name,
+        dataset=dataset,
+        task=evaluation_task,
+        scoring_metrics=get_anomaly_metrics(),
+        scoring_key_mapping={
+            "output": "output",
+            "expected_output": "expected",
+        },
+        experiment_tags=experiment_tags,
+    )
+    print(f"✅ Experiment complete: {experiment_name}")
+    return result
+
+
+def run_receipt_parsing_experiment(
+    experiment_name: str = "receipt-parsing-eval",
+    experiment_tags: list[str] | None = None,
+):
     """Run receipt text parsing evaluation."""
     from ..llm_client import llm_client
 
@@ -208,6 +263,7 @@ def run_receipt_parsing_experiment(experiment_name: str = "receipt-parsing-eval"
             "output": "output",
             "expected_output": "expected_output",
         },
+        experiment_tags=experiment_tags,
     )
     print(f"✅ Experiment complete: {experiment_name}")
     return result
@@ -245,6 +301,11 @@ def run_all_experiments():
         run_chat_experiment()
     except Exception as e:
         print(f"⚠️ Chat experiment failed: {e}")
+
+    try:
+        run_anomaly_experiment()
+    except Exception as e:
+        print(f"⚠️ Anomaly experiment failed: {e}")
 
     try:
         run_spend_class_experiment()

@@ -6,6 +6,7 @@ This is the interface between AI agents and the database.
 """
 
 import calendar
+import logging
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
@@ -15,6 +16,8 @@ from sqlalchemy.orm import Session
 
 from app.ai.prompts import get_currency_symbol
 from app.services.localization import get_profile_ppp_multiplier
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class UserProfile:
@@ -434,7 +437,7 @@ class ContextManager:
             # Flag the JSONB field as modified so SQLAlchemy detects the change
             flag_modified(user, "goals")
             self.db.commit()
-            print(f"[ContextManager] Saved {len(goals)} goals for user {user_id}")
+            logger.debug("Saved %s goals for user_id=%s", len(goals), user_id)
 
     # =========================================================================
     # TRANSACTION QUERIES (for chat)

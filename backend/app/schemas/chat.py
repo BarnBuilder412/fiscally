@@ -33,6 +33,18 @@ class ChatResponse(BaseModel):
     memory_updated: bool = Field(False, description="Whether a new fact was stored")
     new_fact: Optional[str] = Field(None, description="Fact that was stored, if any")
     trace_id: Optional[str] = Field(None, description="Opik trace ID for feedback logging")
+    response_confidence: Optional[float] = Field(
+        None,
+        description="Estimated confidence (0-1) for the generated response.",
+    )
+    fallback_used: bool = Field(
+        False,
+        description="True when a bounded fallback response was returned instead of full agent output.",
+    )
+    fallback_reason: Optional[str] = Field(
+        None,
+        description="Machine-readable fallback reason when fallback_used=true.",
+    )
     reasoning_steps: Optional[List[ReasoningStep]] = Field(
         None, 
         description="Chain-of-thought reasoning steps the AI performed"
@@ -59,6 +71,7 @@ class InsightResponse(BaseModel):
     total_spent: float
     transaction_count: int
     alerts: List["InsightAlert"] = Field(default_factory=list)
+    impact_counters: Dict[str, float] = Field(default_factory=dict)
 
 
 class InsightAlert(BaseModel):

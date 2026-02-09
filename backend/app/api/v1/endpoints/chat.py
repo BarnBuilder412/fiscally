@@ -6,6 +6,7 @@ Provides:
 - POST /insights - Generate spending insights on demand
 """
 from datetime import datetime, timedelta
+import logging
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -25,6 +26,7 @@ from app.ai.context_manager import ContextManager
 from app.ai.feedback import log_chat_feedback
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("", response_model=ChatResponse)
@@ -83,13 +85,31 @@ async def chat(
             memory_updated=result.memory_updated,
             new_fact=result.new_fact,
             trace_id=result.trace_id,
+            response_confidence=result.response_confidence,
+            fallback_used=result.fallback_used,
+            fallback_reason=result.fallback_reason,
             reasoning_steps=reasoning_steps
         )
-    except Exception as e:
-        print(f"Chat error: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Chat processing failed: {str(e)}"
+    except Exception:
+        logger.exception("Chat processing failed for user_id=%s", current_user.id)
+        return ChatResponse(
+            response=(
+                "I hit a temporary issue generating a full answer. "
+                "Try again in a moment, or ask for your current month spending total."
+            ),
+            memory_updated=False,
+            new_fact=None,
+            trace_id=None,
+            response_confidence=0.0,
+            fallback_used=True,
+            fallback_reason="temporary_processing_error",
+            reasoning_steps=[
+                ReasoningStep(
+                    step_type="analyzing",
+                    content="Returned a safe fallback while core chat processing recovers.",
+                    data={"fallback": True},
+                )
+            ],
         )
 
 
@@ -157,9 +177,9 @@ async def generate_insights(
             total_spent=total_spent,
             transaction_count=len(transactions)
         )
-    except Exception as e:
-        print(f"Insight error: {e}")
+    except Exception:
+        logger.exception("Insight generation failed for user_id=%s", current_user.id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Insight generation failed: {str(e)}"
+            detail="Insight generation failed. Please try again shortly.",
         )

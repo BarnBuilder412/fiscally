@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, transactions, profile, chat, goals, insights
+from app.api.v1.endpoints import auth, transactions, profile, chat, goals, insights, evals
 
 api_router = APIRouter()
 
@@ -21,3 +21,6 @@ api_router.include_router(insights.router, prefix="/insights", tags=["Insights"]
 
 # Goals endpoints
 api_router.include_router(goals.router, prefix="/goals", tags=["Goals"])
+
+# Evaluation and quality artifacts
+api_router.include_router(evals.router, prefix="/evals", tags=["Evaluation"])

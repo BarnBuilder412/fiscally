@@ -78,6 +78,58 @@ class SpendClassAccuracy(base_metric.BaseMetric):
         )
 
 
+class AnomalyDetectionAccuracy(base_metric.BaseMetric):
+    """Check if anomaly detector matches expected anomaly decision and severity."""
+
+    name = "anomaly_detection_accuracy"
+
+    def score(
+        self,
+        output: Dict[str, Any],
+        expected_output: Dict[str, Any],
+        **kwargs
+    ) -> score_result.ScoreResult:
+        predicted_flag = bool(output.get("is_anomaly", False))
+        expected_flag = bool(expected_output.get("is_anomaly", False))
+
+        if predicted_flag != expected_flag:
+            return score_result.ScoreResult(
+                value=0.0,
+                name=self.name,
+                reason=f"Predicted anomaly={predicted_flag}, expected anomaly={expected_flag}",
+            )
+
+        # When both agree it's not an anomaly, this is correct.
+        if not expected_flag:
+            return score_result.ScoreResult(
+                value=1.0,
+                name=self.name,
+                reason="Both predicted and expected as non-anomaly",
+            )
+
+        predicted_severity = str(output.get("severity") or "").lower()
+        expected_severity = str(expected_output.get("severity") or "").lower()
+        if expected_severity and predicted_severity:
+            if predicted_severity == expected_severity:
+                return score_result.ScoreResult(
+                    value=1.0,
+                    name=self.name,
+                    reason=f"Anomaly severity matched ({predicted_severity})",
+                )
+            return score_result.ScoreResult(
+                value=0.5,
+                name=self.name,
+                reason=f"Anomaly detected but severity mismatch ({predicted_severity} vs {expected_severity})",
+            )
+
+        # If severity not provided in expected data, anomaly match is enough.
+        return score_result.ScoreResult(
+            value=1.0,
+            name=self.name,
+            reason="Anomaly detection matched expected decision",
+        )
+
+
 class CurrencyIndicatorUsage(base_metric.BaseMetric):
     """Check if response uses a recognizable currency indicator."""
     
@@ -331,6 +383,7 @@ def get_fiscally_metrics():
         CategoryAccuracy(),
         ConfidenceCalibration(),
         SpendClassAccuracy(),
+        AnomalyDetectionAccuracy(),
         CurrencyIndicatorUsage(),
         ResponseConciseness(),
         VoiceParsingAccuracy(),
@@ -365,6 +418,13 @@ def get_spend_class_metrics():
     return [
         SpendClassAccuracy(),
         ConfidenceCalibration(),
+    ]
+
+
+def get_anomaly_metrics():
+    """Get metrics specifically for anomaly detection."""
+    return [
+        AnomalyDetectionAccuracy(),
     ]
 
 

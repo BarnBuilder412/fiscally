@@ -8,6 +8,7 @@ Instrumented with Opik for observability.
 import os
 import json
 import base64
+import logging
 import httpx
 from typing import Optional, Dict, Any, List
 from openai import AsyncOpenAI
@@ -27,6 +28,8 @@ from .prompts import (
     CATEGORIES,
 )
 
+logger = logging.getLogger(__name__)
+
 # Initialize Opik (optional - graceful degradation if not configured)
 _opik_enabled = False
 try:
@@ -35,9 +38,9 @@ try:
     if api_key and workspace:
         opik.configure(api_key=api_key, workspace=workspace, force=False)
         _opik_enabled = True
-        print(f"Opik observability enabled for workspace: {workspace}")
+        logger.info("Opik observability enabled for workspace=%s", workspace)
 except Exception as e:
-    print(f"Opik not configured (observability disabled): {e}")
+    logger.warning("Opik not configured (observability disabled): %s", e)
 
 
 class LLMClient:
@@ -116,7 +119,7 @@ class LLMClient:
                     
                     return " | ".join(snippets) if snippets else None
         except Exception as e:
-            print(f"Search failed for {merchant_name}: {e}")
+            logger.warning("Merchant search failed for merchant=%s", merchant_name, exc_info=True)
             return None
         
         return None
@@ -572,7 +575,7 @@ class LLMClient:
                 "success": False,
                 "error": str(e)
             })
-            print(f"Transcription failed: {e}")
+            logger.warning("Whisper transcription failed for file=%s", file_path, exc_info=True)
             raise e
 
 

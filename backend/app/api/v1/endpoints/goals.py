@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import Dict, List, Optional, Any
 from datetime import datetime
+import logging
 
 from app.api.deps import CurrentUser, get_db
 from app.ai.context_manager import ContextManager
@@ -15,6 +16,7 @@ from app.ai.prompts import get_currency_symbol
 from sqlalchemy.orm import Session
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class GoalDetail(BaseModel):
@@ -50,7 +52,7 @@ async def sync_goals(
     # Format goals for storage
     goals_to_store = []
     for goal in request.goals:
-        print(f"Syncing goal: {goal.label}, Priority: {goal.priority}")
+        logger.debug("Syncing goal label=%s priority=%s", goal.label, goal.priority)
         goal_data = {
             "id": goal.id,
             "label": goal.label,

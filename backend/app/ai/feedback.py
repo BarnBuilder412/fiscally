@@ -9,7 +9,10 @@ This module provides utilities to:
 3. Track ground truth for evaluation dataset creation
 """
 import opik
+import logging
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 # Initialize Opik client
@@ -64,7 +67,7 @@ def log_category_correction(
         
         return True
     except Exception as e:
-        print(f"Failed to log category correction feedback: {e}")
+        logger.warning("Failed to log category correction feedback", exc_info=True)
         return False
 
 
@@ -107,7 +110,7 @@ def log_spend_class_correction(
         )
         return True
     except Exception as e:
-        print(f"Failed to log spend class correction feedback: {e}")
+        logger.warning("Failed to log spend class correction feedback", exc_info=True)
         return False
 
 
@@ -146,7 +149,7 @@ def log_chat_feedback(
         
         return True
     except Exception as e:
-        print(f"Failed to log chat feedback: {e}")
+        logger.warning("Failed to log chat feedback", exc_info=True)
         return False
 
 
@@ -178,7 +181,7 @@ def log_anomaly_feedback(
         
         return True
     except Exception as e:
-        print(f"Failed to log anomaly feedback: {e}")
+        logger.warning("Failed to log anomaly feedback", exc_info=True)
         return False
 
 

@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 import base64
 import binascii
 import hashlib
+import logging
 import os
 import tempfile
 from typing import Annotated, Optional
@@ -38,6 +39,7 @@ from app.ai.feedback import log_category_correction, log_spend_class_correction
 from app.services.currency_conversion import convert_amount, CurrencyConversionError
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 VOICE_MAX_UPLOAD_BYTES = 12 * 1024 * 1024
 VOICE_MIME_EXTENSION_MAP = {
@@ -110,7 +112,6 @@ def _compute_sms_dedupe_key(
     merchant: Optional[str],
     category: str,
     transaction_at: datetime,
-    raw_sms: Optional[str],
     sender: Optional[str],
 ) -> str:
     payload = "|".join(
@@ -120,7 +121,6 @@ def _compute_sms_dedupe_key(
             _normalized_text(category),
             transaction_at.replace(second=0, microsecond=0).isoformat(),
             _normalized_text(sender),
-            _normalized_text(raw_sms),
         ]
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -166,6 +166,12 @@ async def create_transaction(
     - Detects anomalies and sets is_anomaly/anomaly_reason
     - All processing is traced via Opik for observability
     """
+    if request.source == "sms" and request.raw_sms:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="raw_sms is not accepted. Keep SMS content on-device and send only structured fields.",
+        )
+
     # Initialize AI components
     context_manager = ContextManager(db)
     agent = TransactionAgent(context_manager)
@@ -208,11 +214,13 @@ async def create_transaction(
             spend_class_reason = "User selected spend class"
             spend_class_confidence = "1.0"
         opik_trace_id = result.opik_trace_id
-    except Exception as e:
+    except Exception:
         # Log but don't fail - graceful degradation
-        import traceback
-        print(f"AI processing failed: {e}")
-        print(f"Full traceback: {traceback.format_exc()}")
+        logger.exception(
+            "Transaction AI enrichment failed for user_id=%s source=%s",
+            current_user.id,
+            request.source,
+        )
         if not request.category:
             ai_category = "other"
         ai_confidence = "0.0"
@@ -226,7 +234,7 @@ async def create_transaction(
         category=ai_category,
         note=request.note,
         source=request.source,
-        raw_sms=request.raw_sms if request.source == "sms" else None,
+        raw_sms=None,  # Privacy policy: raw SMS is never persisted server-side.
         transaction_at=request.transaction_at or datetime.utcnow(),
         ai_category_confidence=ai_confidence,
         spend_class=spend_class,
@@ -326,7 +334,8 @@ async def ingest_sms_batch(
     Ingest parsed SMS transactions in batch with duplicate protection.
 
     This endpoint is Android-SMS specific and keeps ingestion idempotent by
-    checking short-window matches for amount/merchant/timestamp.
+    checking short-window matches for amount/merchant/timestamp/signature.
+    Raw SMS bodies are intentionally not accepted.
     """
     context_manager = ContextManager(db)
     agent = TransactionAgent(context_manager)
@@ -350,14 +359,14 @@ async def ingest_sms_batch(
             category = item.category or "other"
             transaction_at = item.transaction_at or datetime.utcnow()
             currency = (item.currency or fallback_currency).upper()
-            dedupe_key = item.dedupe_key or _compute_sms_dedupe_key(
+            dedupe_key = item.sms_signature or item.dedupe_key or _compute_sms_dedupe_key(
                 amount=amount_value,
                 merchant=merchant,
                 category=category,
                 transaction_at=transaction_at,
-                raw_sms=item.raw_sms,
                 sender=item.sms_sender,
             )
+            dedupe_key = dedupe_key.strip().lower()
 
             # Duplicate check in a tight time window to avoid repeated ingestion.
             window_start = transaction_at - timedelta(minutes=2)
@@ -372,15 +381,14 @@ async def ingest_sms_batch(
                 )
                 .all()
             )
+            signature_marker = f"sig:{dedupe_key}"
+            legacy_marker = f"key:{dedupe_key[:16]}"
             is_duplicate = any(
                 abs(float(tx.amount) - amount_value) < 0.01
                 and _normalized_text(tx.merchant) == _normalized_text(merchant)
                 and (
-                    f"key:{dedupe_key[:16]}" in _normalized_text(tx.note)
-                    or (
-                        item.raw_sms
-                        and _normalized_text(tx.raw_sms) == _normalized_text(item.raw_sms)
-                    )
+                    signature_marker in _normalized_text(tx.note)
+                    or legacy_marker in _normalized_text(tx.note)
                 )
                 for tx in candidates
             )
@@ -419,10 +427,15 @@ async def ingest_sms_batch(
                 is_anomaly = ai_result.is_anomaly
                 anomaly_reason = ai_result.anomaly_reason
                 opik_trace_id = ai_result.opik_trace_id
-            except Exception as ai_exc:
-                print(f"SMS batch AI enrichment failed: {ai_exc}")
+            except Exception:
+                logger.warning(
+                    "SMS batch AI enrichment failed for user_id=%s dedupe_key=%s",
+                    current_user.id,
+                    dedupe_key,
+                    exc_info=True,
+                )
 
-            note_suffix = f"Auto-tracked via SMS [key:{dedupe_key[:16]}]"
+            note_suffix = f"Auto-tracked via SMS [sig:{dedupe_key}]"
             created = Transaction(
                 user_id=current_user.id,
                 amount=str(item.amount),
@@ -431,7 +444,7 @@ async def ingest_sms_batch(
                 category=ai_category,
                 note=note_suffix,
                 source="sms",
-                raw_sms=item.raw_sms,
+                raw_sms=None,
                 transaction_at=transaction_at,
                 ai_category_confidence=ai_confidence,
                 spend_class=spend_class,
@@ -446,10 +459,14 @@ async def ingest_sms_batch(
             db.refresh(created)
             created_count += 1
             created_transaction_ids.append(str(created.id))
-        except Exception as exc:
+        except Exception:
             db.rollback()
             failed_count += 1
-            print(f"SMS batch ingest failed for one item: {exc}")
+            logger.warning(
+                "SMS batch ingest failed for one transaction user_id=%s",
+                current_user.id,
+                exc_info=True,
+            )
 
     return SmsBatchIngestResponse(
         received_count=len(request.transactions),
@@ -570,8 +587,12 @@ async def update_transaction(
                 )
                 transaction.spend_class_reason = result.spend_class_reason
             transaction.opik_trace_id = result.opik_trace_id
-        except Exception as exc:
-            print(f"Update AI enrichment failed: {exc}")
+        except Exception:
+            logger.warning(
+                "Transaction update AI enrichment failed for transaction_id=%s",
+                transaction_id,
+                exc_info=True,
+            )
     
     db.commit()
     db.refresh(transaction)
@@ -695,7 +716,11 @@ async def parse_voice_transaction(
                     audio_base64 = payload.get("audio_base64")
                     mime_type = payload.get("mime_type")
             except Exception:
-                pass
+                logger.warning(
+                    "Failed to parse JSON body fallback for voice transaction user_id=%s",
+                    current_user.id,
+                    exc_info=True,
+                )
 
     if file is None and not audio_base64:
         raise HTTPException(
@@ -748,6 +773,8 @@ async def parse_voice_transaction(
                 needs_clarification=True,
                 clarification_question="I couldn't hear that clearly. Please try again.",
                 transcript="",
+                fallback_used=True,
+                parse_source="fallback",
             )
         
         # Load context for better parsing
@@ -807,15 +834,22 @@ async def parse_voice_transaction(
             needs_clarification=needs_clarification,
             clarification_question=clarification_question,
             transcript=transcript,
+            fallback_used=False,
+            parse_source="llm_parse",
         )
         
-    except Exception as e:
-        print(f"Voice processing failed: {e}")
-        import traceback
-        print(traceback.format_exc())
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Voice processing failed. Please try again.",
+    except Exception:
+        logger.exception("Voice processing failed for user_id=%s", current_user.id)
+        return VoiceTransactionResponse(
+            amount=0.0,
+            merchant=None,
+            category="other",
+            confidence=0.0,
+            needs_clarification=True,
+            clarification_question="I hit a temporary issue processing that audio. Please try again.",
+            transcript=None,
+            fallback_used=True,
+            parse_source="fallback",
         )
     finally:
         # Cleanup temp file
