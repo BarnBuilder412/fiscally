@@ -11,6 +11,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Animated,
+  Keyboard,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -139,13 +140,34 @@ const ReasoningStepsDisplay = ({ steps }: { steps: ReasoningStep[] }) => {
 export default function ChatScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const tabBarOffset = 72 + insets.bottom;
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const tabBarOffset = isKeyboardVisible ? 0 : 72 + insets.bottom;
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [thinkingSteps, setThinkingSteps] = useState<ReasoningStep[]>([]);
   const [feedbackByTrace, setFeedbackByTrace] = useState<Record<string, 1 | 2>>({});
   const scrollViewRef = useRef<ScrollView>(null);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, () => {
+      setIsKeyboardVisible(true);
+      requestAnimationFrame(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      });
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setIsKeyboardVisible(false);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const handleSend = async (text?: string) => {
     const messageText = text ? text.trim() : inputText.trim();
@@ -241,7 +263,7 @@ export default function ChatScreen() {
       <KeyboardAvoidingView
         style={[styles.keyboardView, { paddingBottom: tabBarOffset }]}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 96 : 82}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 96 : 0}
       >
         <ScrollView
           ref={scrollViewRef}
@@ -252,6 +274,9 @@ export default function ChatScreen() {
           ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          onContentSizeChange={() => {
+            scrollViewRef.current?.scrollToEnd({ animated: true });
+          }}
         >
           {/* Suggested Questions */}
           {messages.length <= 1 && (
