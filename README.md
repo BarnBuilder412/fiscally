@@ -212,6 +212,53 @@ python -m app.ai.evaluation.experiments
 # View results in Opik dashboard
 ```
 
+### Baseline vs Challenger Pipeline (Hackathon)
+Generate judge-ready before/after evidence, thresholds, deltas, and readiness score:
+
+```bash
+# 1) Capture baseline (before prompt/model change)
+python scripts/opik_eval_pipeline.py \
+  --mode baseline-only \
+  --run-id opik-baseline-001 \
+  --output eval_artifacts/baseline_latest.json \
+  --baseline-output eval_artifacts/baseline_latest.json \
+  --min-readiness-score 0 \
+  --tag hackathon --tag opik-bounty
+
+# 2) Apply your improvement (prompt/model/tool flow), then run challenger
+python scripts/opik_eval_pipeline.py \
+  --mode challenger-only \
+  --run-id opik-challenger-001 \
+  --baseline-artifact eval_artifacts/baseline_latest.json \
+  --output eval_artifacts/latest.json \
+  --chat-feedback-score 0.82 \
+  --fallback-rate 0.07 \
+  --feedback-sample-size 60 \
+  --min-feedback-score 0.75 \
+  --max-fallback-rate 0.15 \
+  --max-feedback-drop 0.03 \
+  --max-fallback-regression 0.03 \
+  --min-readiness-score 9.2 \
+  --tag hackathon --tag opik-bounty
+```
+
+Validate artifact gate independently:
+
+```bash
+python scripts/eval_gate.py \
+  --artifact eval_artifacts/latest.json \
+  --baseline-artifact eval_artifacts/baseline_latest.json \
+  --min-readiness-score 9.2
+
+# Readiness + deltas are now persisted in latest.json
+```
+
+Read artifact via API:
+
+```bash
+GET /api/v1/evals/latest
+```
+
 ### Evaluation Metrics
 - **Categorization Accuracy**: % of correct category predictions
 - **Hallucination Check**: LLM-judged factual accuracy
@@ -225,6 +272,11 @@ OPIK_API_KEY=your_opik_api_key
 OPIK_WORKSPACE=your_workspace_name
 OPIK_PROJECT_NAME=fiscally
 ```
+
+### SMS Privacy
+- SMS is parsed on-device.
+- Raw SMS content is not accepted by backend ingest endpoints.
+- Send only structured transaction fields + hashed SMS signature for idempotency.
 
 ---
 

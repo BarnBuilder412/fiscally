@@ -228,9 +228,10 @@ All endpoints follow `/api/v1/` convention:
 - `POST /api/v1/goals/sync` - Sync goals from mobile
 
 ### AI Features
-- `POST /api/v1/chat` - Conversational query (returns response + reasoning_steps)
+- `POST /api/v1/chat` - Conversational query (returns response + reasoning_steps + fallback/confidence metadata)
 - `POST /api/v1/chat/feedback` - Capture thumbs up/down linked to Opik trace
 - `GET /api/v1/insights` - Fetch weekly summary, patterns, and structured `alerts[]` for Smart Alerts UI
+- `GET /api/v1/evals/latest` - Fetch latest evaluation artifact summary (metrics, thresholds, gate status) for demo/judging
 
 ## Development Workflow
 
@@ -669,6 +670,14 @@ The UI follows the "Stitch" design system from HTML mockups in:
 **Status:** Core integration upgrades landed across backend and mobile.
 
 ##### Backend Upgrades
+- Hardened SMS privacy path: backend no longer accepts/persists raw SMS bodies for ingest; idempotency uses hashed `sms_signature`.
+- Added eval artifact endpoint (`GET /api/v1/evals/latest`) for judge/demo visibility into latest metric deltas and gate status.
+- Added Opik baseline-vs-challenger pipeline script (`backend/scripts/opik_eval_pipeline.py`) to generate:
+  - Canonical metrics + deltas
+  - Operational metrics (`fallback_rate`, `chat_feedback_score`)
+  - Readiness score and detailed gate checks in `backend/eval_artifacts/latest.json`
+- Extended eval gate (`backend/scripts/eval_gate.py`) with readiness score checks (`--min-readiness-score`) and optional operational/regression checks.
+- Added startup secret hardening for non-dev environments (fails fast on weak/default `SECRET_KEY`).
 - Added transaction enrichment fields: `spend_class`, `spend_class_confidence`, `spend_class_reason`, `opik_trace_id`.
 - Added robust transaction PATCH body schema and fixed delete endpoint duplicate code bug.
 - Added receipt ingestion endpoint (`POST /api/v1/transactions/receipt`) for image/PDF auto-add.
@@ -681,6 +690,7 @@ The UI follows the "Stitch" design system from HTML mockups in:
 - Hardened voice parsing endpoint with strict payload validation, empty-transcript handling, and backward-compatible support for `audio_base64` payloads.
 
 ##### Mobile Upgrades
+- Updated Android SMS tracking payloads to send structured fields + hashed signatures only (no raw SMS forwarding).
 - Added CRUD wiring (`updateTransaction`, `deleteTransaction`) and in-app edit transaction flow.
 - Added receipt capture flow (camera/gallery/PDF) and auto-add UX.
 - Added Android SMS tracking service with permissions, parsing, dedupe, and periodic sync.
@@ -696,6 +706,14 @@ cd mobile
 pnpm install          # Install dependencies
 pnpm start -- --clear # Start Metro with cache clear
 pnpm typecheck        # Run TypeScript checks
+```
+
+```bash
+cd backend
+source venv/bin/activate
+python scripts/opik_eval_pipeline.py --mode baseline-only --run-id opik-baseline-001 --output eval_artifacts/baseline_latest.json --baseline-output eval_artifacts/baseline_latest.json --min-readiness-score 0
+python scripts/opik_eval_pipeline.py --mode challenger-only --run-id opik-challenger-001 --baseline-artifact eval_artifacts/baseline_latest.json --output eval_artifacts/latest.json --min-readiness-score 9.2
+python scripts/eval_gate.py --artifact eval_artifacts/latest.json --baseline-artifact eval_artifacts/baseline_latest.json --min-readiness-score 9.2
 ```
 
 #### Notes for Mobile Contributors
