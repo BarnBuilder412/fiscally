@@ -18,6 +18,11 @@ type IconName = 'home' | 'home-outline' | 'trending-up' | 'trending-up-outline' 
 function CustomTabBar({ state, navigation }: TabBarProps) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const currentRouteName = state.routes[state.index]?.name;
+
+  if (currentRouteName === 'chat') {
+    return null;
+  }
 
   const tabs = [
     { name: 'index', label: 'Home', icon: 'home', iconOutline: 'home-outline' },
@@ -29,16 +34,13 @@ function CustomTabBar({ state, navigation }: TabBarProps) {
 
   return (
     <View style={[styles.tabBarContainer, { paddingBottom: insets.bottom }]}>
-      {/* Floating Chat Button - Hide when on chat screen */}
-      {state.routes[state.index].name !== 'chat' && (
-        <TouchableOpacity
-          style={[styles.floatingChatButton, { bottom: 70 + insets.bottom }]}
-          onPress={() => router.push('/chat' as any)}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="chatbubble-ellipses" size={26} color={Colors.white} />
-        </TouchableOpacity>
-      )}
+      <TouchableOpacity
+        style={[styles.floatingChatButton, { bottom: 70 + insets.bottom }]}
+        onPress={() => router.push('/chat' as any)}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="chatbubble-ellipses" size={26} color={Colors.white} />
+      </TouchableOpacity>
 
       <View style={styles.tabBar}>
         {tabs.map((tab, index) => {

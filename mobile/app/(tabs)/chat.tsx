@@ -11,7 +11,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   Animated,
-  Keyboard,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -140,34 +139,12 @@ const ReasoningStepsDisplay = ({ steps }: { steps: ReasoningStep[] }) => {
 export default function ChatScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
-  const tabBarOffset = isKeyboardVisible ? 0 : 72 + insets.bottom;
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [thinkingSteps, setThinkingSteps] = useState<ReasoningStep[]>([]);
   const [feedbackByTrace, setFeedbackByTrace] = useState<Record<string, 1 | 2>>({});
   const scrollViewRef = useRef<ScrollView>(null);
-
-  useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-
-    const showSub = Keyboard.addListener(showEvent, () => {
-      setIsKeyboardVisible(true);
-      requestAnimationFrame(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
-      });
-    });
-    const hideSub = Keyboard.addListener(hideEvent, () => {
-      setIsKeyboardVisible(false);
-    });
-
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
 
   const handleSend = async (text?: string) => {
     const messageText = text ? text.trim() : inputText.trim();
@@ -247,7 +224,7 @@ export default function ChatScreen() {
 
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={{ marginRight: Spacing.md }}>
@@ -261,7 +238,7 @@ export default function ChatScreen() {
       </View>
 
       <KeyboardAvoidingView
-        style={[styles.keyboardView, { paddingBottom: tabBarOffset }]}
+        style={styles.keyboardView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 96 : 0}
       >
@@ -384,13 +361,18 @@ export default function ChatScreen() {
         </ScrollView>
 
         {/* Input */}
-        <View style={[styles.inputContainer, { paddingBottom: Spacing.sm }]}>
+        <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, Spacing.sm) }]}>
           <TextInput
             style={styles.input}
             placeholder="Ask anything about your money..."
             placeholderTextColor={Colors.gray400}
             value={inputText}
             onChangeText={setInputText}
+            onFocus={() => {
+              requestAnimationFrame(() => {
+                scrollViewRef.current?.scrollToEnd({ animated: true });
+              });
+            }}
             multiline
             maxLength={500}
             returnKeyType="send"
