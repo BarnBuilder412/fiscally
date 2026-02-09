@@ -691,9 +691,9 @@ async def parse_voice_transaction(
     request: Request,
     current_user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
-    file: Annotated[Optional[UploadFile], File(default=None)] = None,
-    audio_base64: Annotated[Optional[str], Form(default=None)] = None,
-    mime_type: Annotated[Optional[str], Form(default=None)] = None,
+    file: Annotated[Optional[UploadFile], File()] = None,
+    audio_base64: Annotated[Optional[str], Form()] = None,
+    mime_type: Annotated[Optional[str], Form()] = None,
 ):
     """
     Parse voice input to transaction data.

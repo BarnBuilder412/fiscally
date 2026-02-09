@@ -1,0 +1,52 @@
+# Ignore Python cache and virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+ENV/
+
+# Ignore test files
+test_*.py
+pytest.ini
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Ignore IDE settings
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Ignore environment files
+.env
+.env.local
+.env.*.local
+
+# Keep .env.example for reference
+!.env.example
+
+# Ignore eval artifacts and logs
+eval_artifacts/
+*.log
+
+# Ignore local data
+*.db
+*.sqlite3
+
+# Ignore git
+.git/
+.gitignore
+
+# Ignore documentation (not needed in container)
+docs/
+*.md
+!README.md
+
+# Ignore scripts not needed at runtime
+seed_demo_data.py
+setup_production.py

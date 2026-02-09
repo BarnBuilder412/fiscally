@@ -1,19 +1,14 @@
 import React, { useEffect } from 'react';
-import { View, StyleSheet, Dimensions } from 'react-native';
+import { Image, StyleSheet } from 'react-native';
 import Animated, {
     useSharedValue,
     useAnimatedStyle,
     withTiming,
     withSpring,
     runOnJS,
-    withSequence,
-    withDelay,
     Easing
 } from 'react-native-reanimated';
-import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '@/constants/theme';
-
-const { width, height } = Dimensions.get('window');
 
 interface Props {
     onFinish: () => void;
@@ -48,9 +43,11 @@ export function AnimatedSplash({ onFinish }: Props) {
 
     return (
         <Animated.View style={[styles.container, containerStyle]}>
-            <Animated.View style={[styles.logoContainer, logoStyle]}>
-                <Ionicons name="wallet-outline" size={64} color={Colors.white} />
-            </Animated.View>
+            <Animated.Image
+                source={require('../assets/logo-mark.png')}
+                style={[styles.logo, logoStyle]}
+                resizeMode="contain"
+            />
         </Animated.View>
     );
 }
@@ -58,22 +55,18 @@ export function AnimatedSplash({ onFinish }: Props) {
 const styles = StyleSheet.create({
     container: {
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: '#1E293B', // Dark elegant background
+        backgroundColor: Colors.background,
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: 99999,
     },
-    logoContainer: {
+    logo: {
         width: 120,
         height: 120,
-        borderRadius: 60,
-        backgroundColor: Colors.primary,
-        alignItems: 'center',
-        justifyContent: 'center',
         shadowColor: Colors.black,
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-        elevation: 8,
+        shadowOpacity: 0.18,
+        shadowRadius: 10,
+        elevation: 6,
     },
 });
