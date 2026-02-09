@@ -139,6 +139,7 @@ const ReasoningStepsDisplay = ({ steps }: { steps: ReasoningStep[] }) => {
 export default function ChatScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const tabBarOffset = 72 + insets.bottom;
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -224,7 +225,7 @@ export default function ChatScreen() {
 
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={{ marginRight: Spacing.md }}>
@@ -238,7 +239,7 @@ export default function ChatScreen() {
       </View>
 
       <KeyboardAvoidingView
-        style={styles.keyboardView}
+        style={[styles.keyboardView, { paddingBottom: tabBarOffset }]}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 96 : 82}
       >
@@ -247,7 +248,7 @@ export default function ChatScreen() {
           style={styles.messagesContainer}
           contentContainerStyle={[
             styles.messagesContent,
-            { paddingBottom: 84 + Math.max(insets.bottom, Spacing.sm) },
+            { paddingBottom: 84 + Spacing.sm },
           ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
@@ -358,7 +359,7 @@ export default function ChatScreen() {
         </ScrollView>
 
         {/* Input */}
-        <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, Spacing.sm) }]}>
+        <View style={[styles.inputContainer, { paddingBottom: Spacing.sm }]}>
           <TextInput
             style={styles.input}
             placeholder="Ask anything about your money..."
