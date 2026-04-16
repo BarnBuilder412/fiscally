@@ -26,7 +26,8 @@
         "NSLocationWhenInUseUsageDescription": "Fiscally uses location to calibrate budget guidance to local cost of living.",
         "NSCameraUsageDescription": "Fiscally uses camera to scan receipts and auto-add expenses.",
         "NSPhotoLibraryUsageDescription": "Fiscally uses photos to import receipt images.",
-        "NSMicrophoneUsageDescription": "Fiscally uses microphone for voice expense entry."
+        "NSMicrophoneUsageDescription": "Fiscally uses microphone for voice expense entry.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
