@@ -19,7 +19,9 @@ class User(Base):
     
     # Authentication fields
     email = Column(String(255), unique=True, nullable=False, index=True)
-    hashed_password = Column(String(255), nullable=False)
+    hashed_password = Column(String(255), nullable=True)  # Nullable for Google-only users
+    auth_provider = Column(String(20), default="email", nullable=False)  # "email" or "google"
+    google_sub = Column(String(255), nullable=True, unique=True, index=True)  # Google subject ID
     
     # Account status
     is_active = Column(Boolean, default=True, nullable=False)
@@ -85,6 +87,10 @@ class User(Base):
     
     # Refresh token tracking for JWT rotation
     refresh_token_hash = Column(String(255), nullable=True)
+
+    # Password reset
+    password_reset_token = Column(String(255), nullable=True)
+    password_reset_expires = Column(DateTime, nullable=True)
     
     def __repr__(self):
         return f"<User {self.email}>"

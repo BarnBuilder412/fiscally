@@ -44,7 +44,9 @@
         "android.permission.CAMERA",
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION"
-      ]
+      ],
+      "usesCleartextTraffic": true,
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "bundler": "metro",
@@ -57,7 +59,8 @@
       "expo-location",
       "expo-document-picker",
       "expo-font",
-      "expo-notifications"
+      "expo-notifications",
+      "@react-native-google-signin/google-signin"
     ],
     "experiments": {
       "typedRoutes": true

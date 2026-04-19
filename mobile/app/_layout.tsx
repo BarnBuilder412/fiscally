@@ -17,6 +17,26 @@ LogBox.ignoreLogs([
   'Expo AV has been deprecated',
 ]);
 
+import Constants, { ExecutionEnvironment } from 'expo-constants';
+
+// Configure Google Sign-In SDK only if we're NOT in Expo Go
+// (because it requires native modules and throws a TurboModuleRegistry error otherwise)
+const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+
+if (!isExpoGo) {
+  try {
+    const { GoogleSignin } = require('@react-native-google-signin/google-signin');
+    GoogleSignin.configure({
+      webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || '',
+      offlineAccess: false,
+    });
+  } catch (e) {
+    console.log('Google Sign-In native module not available:', (e as Error).message);
+  }
+} else {
+  console.log('Running in Expo Go: Google Sign-In is disabled. Use a development build.');
+}
+
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {

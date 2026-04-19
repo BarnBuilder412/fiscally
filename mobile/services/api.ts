@@ -9,6 +9,8 @@ const STORAGE_KEYS = {
 
 class ApiClient {
   private baseUrl: string;
+  private isRefreshing: boolean = false;
+  private refreshPromise: Promise<boolean> | null = null;
 
   constructor() {
     this.baseUrl = API_BASE_URL;
@@ -25,6 +27,10 @@ class ApiClient {
     return AsyncStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
   }
 
+  private async getRefreshToken(): Promise<string | null> {
+    return AsyncStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
+  }
+
   private async setTokens(tokens: AuthTokens): Promise<void> {
     await AsyncStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, tokens.access_token);
     await AsyncStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, tokens.refresh_token);
@@ -35,9 +41,49 @@ class ApiClient {
     await AsyncStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
   }
 
+  /**
+   * Attempt to refresh the access token using the stored refresh token.
+   * Returns true if refresh succeeded, false otherwise.
+   * Deduplicates concurrent refresh attempts.
+   */
+  private async attemptTokenRefresh(): Promise<boolean> {
+    // Deduplicate: if already refreshing, wait for that to finish
+    if (this.isRefreshing && this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    this.isRefreshing = true;
+    this.refreshPromise = (async () => {
+      try {
+        const refreshToken = await this.getRefreshToken();
+        if (!refreshToken) return false;
+
+        const response = await fetch(`${this.baseUrl}/api/v1/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        });
+
+        if (!response.ok) return false;
+
+        const tokens = await response.json() as AuthTokens;
+        await this.setTokens(tokens);
+        return true;
+      } catch {
+        return false;
+      } finally {
+        this.isRefreshing = false;
+        this.refreshPromise = null;
+      }
+    })();
+
+    return this.refreshPromise;
+  }
+
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    _isRetry: boolean = false,
   ): Promise<T> {
     const token = await this.getAccessToken();
 
@@ -53,9 +99,16 @@ class ApiClient {
     });
 
     if (!response.ok) {
-      if (response.status === 401) {
+      // On 401, try to refresh the token and retry ONCE
+      if (response.status === 401 && !_isRetry) {
+        const refreshed = await this.attemptTokenRefresh();
+        if (refreshed) {
+          return this.request<T>(endpoint, options, true);
+        }
+        // Refresh failed — clear tokens
         await this.clearTokens();
       }
+
       const errorData = await response.json().catch(() => ({}));
 
       // Handle validation errors (array of errors) or single error
@@ -97,7 +150,8 @@ class ApiClient {
     }
   }
 
-  // Auth
+  // ─── Auth ──────────────────────────────────────────────────────────────
+
   async login(email: string, password: string): Promise<AuthTokens> {
     const tokens = await this.request<AuthTokens>('/api/v1/auth/login', {
       method: 'POST',
@@ -116,6 +170,15 @@ class ApiClient {
     return tokens;
   }
 
+  async loginWithGoogle(idToken: string): Promise<AuthTokens> {
+    const tokens = await this.request<AuthTokens>('/api/v1/auth/google', {
+      method: 'POST',
+      body: JSON.stringify({ id_token: idToken }),
+    });
+    await this.setTokens(tokens);
+    return tokens;
+  }
+
   async logout(): Promise<void> {
     try {
       await this.request('/api/v1/auth/logout', { method: 'POST' });
@@ -128,7 +191,35 @@ class ApiClient {
     return this.request<User>('/api/v1/auth/me');
   }
 
-  // Profile
+  // ─── Password Reset ────────────────────────────────────────────────────
+
+  async forgotPassword(email: string): Promise<{ message: string }> {
+    return this.request('/api/v1/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  async resetPassword(email: string, otp: string, newPassword: string): Promise<{ message: string }> {
+    return this.request('/api/v1/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ email, otp, new_password: newPassword }),
+    });
+  }
+
+  // ─── Account Deletion ──────────────────────────────────────────────────
+
+  async deleteAccount(password?: string): Promise<{ message: string }> {
+    const result = await this.request<{ message: string }>('/api/v1/auth/account', {
+      method: 'DELETE',
+      body: JSON.stringify({ confirm: true, password }),
+    });
+    await this.clearTokens();
+    return result;
+  }
+
+  // ─── Profile ──────────────────────────────────────────────────────────
+
   async getProfile(): Promise<User> {
     return this.request<User>('/api/v1/profile');
   }
@@ -140,7 +231,8 @@ class ApiClient {
     });
   }
 
-  // Notifications
+  // ─── Notifications ────────────────────────────────────────────────────
+
   async registerPushToken(
     token: string,
     platform: 'ios' | 'android' | 'web' | 'unknown' = 'unknown'
@@ -158,7 +250,8 @@ class ApiClient {
     });
   }
 
-  // Transactions
+  // ─── Transactions ──────────────────────────────────────────────────────
+
   async getTransactions(params?: {
     limit?: number;
     offset?: number;
@@ -379,7 +472,8 @@ class ApiClient {
     return payload;
   }
 
-  // Chat
+  // ─── Chat ─────────────────────────────────────────────────────────────
+
   async sendChatMessage(message: string): Promise<{
     response: string;
     memory_updated?: boolean;
@@ -410,7 +504,8 @@ class ApiClient {
     });
   }
 
-  // Insights
+  // ─── Insights ─────────────────────────────────────────────────────────
+
   async getInsights(): Promise<{
     headline?: string;
     summary?: string;
@@ -446,7 +541,8 @@ class ApiClient {
     return this.request('/api/v1/evals/latest');
   }
 
-  // Goals
+  // ─── Goals ────────────────────────────────────────────────────────────
+
   async syncGoals(goals: Array<{
     id: string;
     label: string;
@@ -528,7 +624,8 @@ class ApiClient {
     });
   }
 
-  // Helper to check if user is authenticated
+  // ─── Helper ───────────────────────────────────────────────────────────
+
   async isAuthenticated(): Promise<boolean> {
     const token = await this.getAccessToken();
     if (!token) {

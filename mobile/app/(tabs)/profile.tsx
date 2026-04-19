@@ -438,6 +438,38 @@ export default function ProfileScreen() {
           <Text style={styles.logoutText}>Logout</Text>
         </TouchableOpacity>
 
+        {/* Danger Zone */}
+        <Text style={[styles.sectionLabel, { color: Colors.error, marginTop: Spacing.xxl }]}>DANGER ZONE</Text>
+        <TouchableOpacity
+          style={styles.deleteButton}
+          activeOpacity={0.8}
+          onPress={() => {
+            Alert.alert(
+              'Delete Account',
+              'This action cannot be undone. All your data including transactions, goals, and insights will be permanently removed.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Delete',
+                  style: 'destructive',
+                  onPress: async () => {
+                    try {
+                      await unregisterPushTokenIfPossible();
+                      await api.deleteAccount();
+                      router.replace('/(auth)/login');
+                    } catch (err: any) {
+                      Alert.alert('Error', err?.message || 'Failed to delete account.');
+                    }
+                  },
+                },
+              ]
+            );
+          }}
+        >
+          <Ionicons name="trash-outline" size={20} color={Colors.error} />
+          <Text style={styles.deleteText}>Delete Account</Text>
+        </TouchableOpacity>
+
         {/* Version */}
         <Text style={styles.versionText}>FISCALLY AI V2.4.1 (BUILD 108)</Text>
       </ScrollView>
@@ -603,5 +635,21 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     letterSpacing: 1,
     marginTop: Spacing.xl,
+  },
+  deleteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+    backgroundColor: Colors.error + '10',
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    borderColor: Colors.error + '25',
+  },
+  deleteText: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.bold,
+    color: Colors.error,
   },
 });

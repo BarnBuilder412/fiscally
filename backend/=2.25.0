@@ -1,0 +1,7 @@
+Requirement already satisfied: google-auth in ./venv/lib/python3.12/site-packages (2.48.0)
+Requirement already satisfied: pyasn1-modules>=0.2.1 in ./venv/lib/python3.12/site-packages (from google-auth) (0.4.2)
+Requirement already satisfied: cryptography>=38.0.3 in ./venv/lib/python3.12/site-packages (from google-auth) (46.0.4)
+Requirement already satisfied: rsa<5,>=3.1.4 in ./venv/lib/python3.12/site-packages (from google-auth) (4.9.1)
+Requirement already satisfied: cffi>=2.0.0 in ./venv/lib/python3.12/site-packages (from cryptography>=38.0.3->google-auth) (2.0.0)
+Requirement already satisfied: pyasn1<0.7.0,>=0.6.1 in ./venv/lib/python3.12/site-packages (from pyasn1-modules>=0.2.1->google-auth) (0.6.2)
+Requirement already satisfied: pycparser in ./venv/lib/python3.12/site-packages (from cffi>=2.0.0->cryptography>=38.0.3->google-auth) (3.0)

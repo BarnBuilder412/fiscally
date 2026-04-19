@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
 
+    # Google OAuth
+    google_client_id: str | None = None
+
+    # CORS
+    cors_origins: str = "*"  # Comma-separated origins, or "*" for dev
+
     # Opik
     opik_api_key: str | None = None
     opik_project_name: str = "fiscally"

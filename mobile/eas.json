@@ -26,7 +26,7 @@
                 "simulator": false
             },
             "env": {
-                "EXPO_PUBLIC_API_URL": "https://fiscally-backend-production.up.railway.app"
+                "EXPO_PUBLIC_API_URL": "http://31.97.206.151:8000"
             },
             "channel": "preview"
         },
@@ -35,7 +35,7 @@
                 "buildType": "app-bundle"
             },
             "env": {
-                "EXPO_PUBLIC_API_URL": "https://fiscally-backend-production.up.railway.app"
+                "EXPO_PUBLIC_API_URL": "http://31.97.206.151:8000"
             },
             "channel": "production"
         }

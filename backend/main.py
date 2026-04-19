@@ -16,9 +16,15 @@ app = FastAPI(
 )
 
 # CORS middleware for mobile app
+# Parse comma-separated origins from config, or use ["*"] for dev
+_cors_origins = (
+    ["*"]
+    if settings.cors_origins.strip() == "*"
+    else [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

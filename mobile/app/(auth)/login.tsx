@@ -7,6 +7,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, Link } from 'expo-router';
@@ -28,6 +29,7 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
 
   const validate = () => {
@@ -39,8 +41,8 @@ export default function LoginScreen() {
     }
     if (!password) {
       newErrors.password = 'Password is required';
-    } else if (password.length < 6) {
-      newErrors.password = 'Password must be at least 6 characters';
+    } else if (password.length < 8) {
+      newErrors.password = 'Password must be at least 8 characters';
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -62,6 +64,47 @@ export default function LoginScreen() {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setGoogleLoading(true);
+    setErrors({});
+
+    try {
+      // Dynamic import to avoid crashes if the module isn't installed yet
+      const { GoogleSignin } = require('@react-native-google-signin/google-signin');
+      
+      await GoogleSignin.hasPlayServices();
+      const userInfo = await GoogleSignin.signIn();
+      const idToken = userInfo?.data?.idToken || userInfo?.idToken;
+
+      if (!idToken) {
+        throw new Error('No ID token received from Google');
+      }
+
+      await api.loginWithGoogle(idToken);
+      await registerPushTokenIfPossible();
+      router.replace('/(tabs)');
+    } catch (err: any) {
+      // Don't show error if user cancelled
+      if (err?.code === 'SIGN_IN_CANCELLED' || err?.code === '12501') {
+        setGoogleLoading(false);
+        return;
+      }
+
+      // If the module isn't installed, show a helpful message
+      if (err?.message?.includes('Cannot find module') || err?.message?.includes('require')) {
+        setErrors({
+          email: 'Google Sign-In is not yet configured. Please use email login.',
+        });
+      } else {
+        setErrors({
+          email: err.message || 'Google Sign-In failed. Please try again.',
+        });
+      }
+    } finally {
+      setGoogleLoading(false);
     }
   };
 
@@ -116,9 +159,11 @@ export default function LoginScreen() {
               }
             />
 
-            <TouchableOpacity style={styles.forgotPassword}>
-              <Text style={styles.forgotPasswordText}>Forgot password?</Text>
-            </TouchableOpacity>
+            <Link href="/(auth)/forgot-password" asChild>
+              <TouchableOpacity style={styles.forgotPassword}>
+                <Text style={styles.forgotPasswordText}>Forgot password?</Text>
+              </TouchableOpacity>
+            </Link>
 
             <Button
               title="Sign In"
@@ -137,14 +182,21 @@ export default function LoginScreen() {
           </View>
 
           {/* Social Login */}
-          <View style={styles.socialButtons}>
-            <TouchableOpacity style={styles.socialButton}>
-              <Ionicons name="logo-google" size={24} color={Colors.textPrimary} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.socialButton}>
-              <Ionicons name="logo-apple" size={24} color={Colors.textPrimary} />
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            style={styles.googleButton}
+            onPress={handleGoogleSignIn}
+            disabled={googleLoading}
+            activeOpacity={0.7}
+          >
+            {googleLoading ? (
+              <ActivityIndicator size="small" color={Colors.textPrimary} />
+            ) : (
+              <>
+                <Ionicons name="logo-google" size={20} color={Colors.textPrimary} />
+                <Text style={styles.googleButtonText}>Continue with Google</Text>
+              </>
+            )}
+          </TouchableOpacity>
 
           {/* Sign Up Link */}
           <View style={styles.signupContainer}>
@@ -230,20 +282,21 @@ const styles = StyleSheet.create({
     color: Colors.textTertiary,
     paddingHorizontal: Spacing.md,
   },
-  socialButtons: {
+  googleButton: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'center',
-    gap: Spacing.lg,
-  },
-  socialButton: {
-    width: 56,
-    height: 56,
+    gap: Spacing.md,
+    height: 52,
     borderRadius: BorderRadius.lg,
     backgroundColor: Colors.gray50,
     borderWidth: 1,
     borderColor: Colors.gray200,
-    justifyContent: 'center',
-    alignItems: 'center',
+  },
+  googleButtonText: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.medium,
+    color: Colors.textPrimary,
   },
   signupContainer: {
     flexDirection: 'row',

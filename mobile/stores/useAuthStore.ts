@@ -10,6 +10,7 @@ interface AuthState {
   
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string, name?: string) => Promise<void>;
+  loginWithGoogle: (idToken: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
   clearError: () => void;
@@ -46,6 +47,21 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({ 
         error: error instanceof Error ? error.message : 'Signup failed', 
         isLoading: false 
+      });
+      throw error;
+    }
+  },
+
+  loginWithGoogle: async (idToken: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      await api.loginWithGoogle(idToken);
+      const user = await api.getMe();
+      set({ user, isAuthenticated: true, isLoading: false });
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : 'Google Sign-In failed',
+        isLoading: false,
       });
       throw error;
     }

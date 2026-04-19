@@ -7,6 +7,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, Link } from 'expo-router';
@@ -29,6 +30,7 @@ export default function SignupScreen() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [errors, setErrors] = useState<{ name?: string; email?: string; password?: string }>({});
 
   const validate = () => {
@@ -43,8 +45,8 @@ export default function SignupScreen() {
     }
     if (!password) {
       newErrors.password = 'Password is required';
-    } else if (password.length < 6) {
-      newErrors.password = 'Password must be at least 6 characters';
+    } else if (password.length < 8) {
+      newErrors.password = 'Password must be at least 8 characters';
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -66,6 +68,43 @@ export default function SignupScreen() {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setGoogleLoading(true);
+    setErrors({});
+
+    try {
+      const { GoogleSignin } = require('@react-native-google-signin/google-signin');
+
+      await GoogleSignin.hasPlayServices();
+      const userInfo = await GoogleSignin.signIn();
+      const idToken = userInfo?.data?.idToken || userInfo?.idToken;
+
+      if (!idToken) {
+        throw new Error('No ID token received from Google');
+      }
+
+      await api.loginWithGoogle(idToken);
+      await registerPushTokenIfPossible();
+      router.replace('/onboarding');
+    } catch (err: any) {
+      if (err?.code === 'SIGN_IN_CANCELLED' || err?.code === '12501') {
+        setGoogleLoading(false);
+        return;
+      }
+      if (err?.message?.includes('Cannot find module') || err?.message?.includes('require')) {
+        setErrors({
+          email: 'Google Sign-In is not yet configured. Please use email signup.',
+        });
+      } else {
+        setErrors({
+          email: err.message || 'Google Sign-In failed. Please try again.',
+        });
+      }
+    } finally {
+      setGoogleLoading(false);
     }
   };
 
@@ -94,6 +133,30 @@ export default function SignupScreen() {
             </Text>
           </View>
 
+          {/* Google Sign-In */}
+          <TouchableOpacity
+            style={styles.googleButton}
+            onPress={handleGoogleSignIn}
+            disabled={googleLoading}
+            activeOpacity={0.7}
+          >
+            {googleLoading ? (
+              <ActivityIndicator size="small" color={Colors.textPrimary} />
+            ) : (
+              <>
+                <Ionicons name="logo-google" size={20} color={Colors.textPrimary} />
+                <Text style={styles.googleButtonText}>Continue with Google</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          {/* Divider */}
+          <View style={styles.dividerContainer}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>or sign up with email</Text>
+            <View style={styles.dividerLine} />
+          </View>
+
           {/* Form */}
           <View style={styles.form}>
             <Input
@@ -119,7 +182,7 @@ export default function SignupScreen() {
 
             <Input
               label="Password"
-              placeholder="Create a password"
+              placeholder="Create a password (min 8 characters)"
               value={password}
               onChangeText={setPassword}
               secureTextEntry={!showPassword}
@@ -194,6 +257,38 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: FontSize.lg,
     color: Colors.textSecondary,
+  },
+  googleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.md,
+    height: 52,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: Colors.gray50,
+    borderWidth: 1,
+    borderColor: Colors.gray200,
+    marginBottom: Spacing.lg,
+  },
+  googleButtonText: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.medium,
+    color: Colors.textPrimary,
+  },
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: Spacing.lg,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: Colors.gray200,
+  },
+  dividerText: {
+    fontSize: FontSize.sm,
+    color: Colors.textTertiary,
+    paddingHorizontal: Spacing.md,
   },
   form: {
     marginBottom: Spacing.xl,
