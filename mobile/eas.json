@@ -26,7 +26,8 @@
                 "simulator": false
             },
             "env": {
-                "EXPO_PUBLIC_API_URL": "http://31.97.206.151:8000"
+                "EXPO_PUBLIC_API_URL": "http://31.97.206.151:8000",
+                "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "683500631464-l66vb2e5aqu539n2ej61tv5009tte54r.apps.googleusercontent.com"
             },
             "channel": "preview"
         },
