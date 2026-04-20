@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "112548660957",
+    "project_id": "fiscally-6eb0b",
+    "storage_bucket": "fiscally-6eb0b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:112548660957:android:e448ae49391a29c7b4fd34",
+        "android_client_info": {
+          "package_name": "com.company.fiscally"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyADEsVtQ1_h98IX0VFxGbi515wJkwhc-8Y"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
