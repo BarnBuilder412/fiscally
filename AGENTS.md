@@ -15,7 +15,7 @@ This file provides guidance to WARP (warp.dev) when working with code in this re
 ### Tech Stack
 - **Backend:** FastAPI (Python) + PostgreSQL
 - **Mobile:** React Native (Expo)
-- **AI:** OpenAI GPT-4o-mini for LLM operations
+- **AI:** OpenAI GPT-5-nano for LLM operations
 - **Observability:** Opik for LLM evaluation
 - **Push:** Firebase Cloud Messaging
 

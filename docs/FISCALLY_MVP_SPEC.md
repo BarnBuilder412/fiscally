@@ -956,7 +956,7 @@ Examples:
 
 - **Backend:** FastAPI (Python)
 - **Mobile:** React Native (Expo)
-- **AI:** OpenAI GPT-4o-mini for LLM tasks
+- **AI:** OpenAI GPT-5-nano for LLM tasks
 - **Push Notifications:** Firebase Cloud Messaging
 - **Observability:** Opik for LLM evaluation
 

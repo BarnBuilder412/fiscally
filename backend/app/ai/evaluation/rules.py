@@ -7,6 +7,9 @@ These rules are configured in the Opik dashboard but documented here for referen
 Use the functions below to create rules programmatically via the API.
 """
 import opik
+import os
+
+EVAL_MODEL = os.getenv("OPENAI_MODEL", "gpt-5-nano")
 
 
 # Initialize Opik client
@@ -21,7 +24,7 @@ CATEGORIZATION_QUALITY_RULE = {
     "name": "categorization-quality",
     "description": "Evaluate transaction categorization accuracy and confidence",
     "sampling_rate": 1.0,  # 100% of traces
-    "model": "gpt-4o-mini",
+    "model": EVAL_MODEL,
     "prompt": """You are evaluating a financial transaction categorization.
 
 INPUT Transaction:
@@ -59,7 +62,7 @@ CHAT_HELPFULNESS_RULE = {
     "name": "chat-helpfulness",
     "description": "Evaluate chat response quality for financial questions",
     "sampling_rate": 0.5,  # 50% of traces
-    "model": "gpt-4o-mini",
+    "model": EVAL_MODEL,
     "prompt": """You are evaluating a financial assistant's response.
 
 USER QUESTION:
@@ -96,7 +99,7 @@ ANOMALY_DETECTION_RULE = {
     "name": "anomaly-detection-quality",
     "description": "Evaluate anomaly detection accuracy",
     "sampling_rate": 1.0,  # 100% - anomaly detection is critical
-    "model": "gpt-4o-mini",
+    "model": EVAL_MODEL,
     "prompt": """Evaluate this anomaly detection result.
 
 TRANSACTION:
@@ -138,7 +141,7 @@ VOICE_PARSING_RULE = {
     "name": "voice-parsing-quality",
     "description": "Evaluate voice input parsing accuracy",
     "sampling_rate": 1.0,
-    "model": "gpt-4o-mini",
+    "model": EVAL_MODEL,
     "prompt": """Evaluate this voice input parsing result.
 
 VOICE INPUT (transcript):
@@ -172,7 +175,7 @@ SPEND_CLASS_RULE = {
     "name": "spend-class-quality",
     "description": "Evaluate need/want/luxury classification quality",
     "sampling_rate": 1.0,
-    "model": "gpt-4o-mini",
+    "model": EVAL_MODEL,
     "prompt": """Evaluate this needs/wants/luxury classification.
 
 TRANSACTION:
@@ -210,7 +213,7 @@ RECEIPT_PARSING_RULE = {
     "name": "receipt-parsing-quality",
     "description": "Evaluate receipt parsing quality for auto-add flow",
     "sampling_rate": 1.0,
-    "model": "gpt-4o-mini",
+    "model": EVAL_MODEL,
     "prompt": """Evaluate this receipt parsing result.
 
 OCR/Vision INPUT:

@@ -57,7 +57,7 @@ def main():
         ('ALGORITHM', 'HS256'),
         ('ACCESS_TOKEN_EXPIRE_MINUTES', '15'),
         ('REFRESH_TOKEN_EXPIRE_DAYS', '7'),
-        ('OPENAI_MODEL', 'gpt-4o-mini'),
+        ('OPENAI_MODEL', 'gpt-5-nano'),
     ]
     
     missing = []
@@ -98,7 +98,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES=15
 REFRESH_TOKEN_EXPIRE_DAYS=7
 
 # AI Settings
-OPENAI_MODEL=gpt-4o-mini
+OPENAI_MODEL=gpt-5-nano
 
 # Optional - Observability
 # OPIK_API_KEY=your-opik-key
