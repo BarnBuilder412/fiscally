@@ -14,6 +14,9 @@ android/
 .env
 .env.local
 .env.*.local
+.env.production
+.env.development
+.env.preview
 
 # IDE
 .vscode/

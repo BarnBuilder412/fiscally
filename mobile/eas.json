@@ -36,7 +36,8 @@
                 "buildType": "app-bundle"
             },
             "env": {
-                "EXPO_PUBLIC_API_URL": "http://31.97.206.151:8000"
+                "EXPO_PUBLIC_API_URL": "http://31.97.206.151:8000",
+                "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "112548660957-jl64q538k91ip0dmq5tosm9slc9caamv.apps.googleusercontent.com"
             },
             "channel": "production"
         }
